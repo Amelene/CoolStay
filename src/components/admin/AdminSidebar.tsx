@@ -19,16 +19,27 @@ import {
   ClipboardList,
   Package,
   History,
+  LayoutDashboard,
 } from "lucide-react";
 
 // Grouped Menu Structure
 const menuGroups = [
   {
+    title: "Overview",
+    items: [
+      {
+        name: "Dashboard",
+        href: "/admin/dashboard",
+        icon: LayoutDashboard,
+      },
+    ],
+  },
+  {
     title: "Operations",
     items: [
       {
         name: "Manage Bookings",
-        href: "/admin/dashboard",
+        href: "/admin/bookings",
         icon: CalendarCheck,
       },
       { name: "Room Availability", href: "/admin/rooms", icon: BedDouble },

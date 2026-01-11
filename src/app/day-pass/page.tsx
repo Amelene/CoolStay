@@ -14,7 +14,7 @@ export default function DayPassPage() {
           {/* Floating Logo Icon (Since nav is text, this is the main visual logo) */}
           <div className="absolute -top-12 left-1/2 -translate-x-1/2 h-24 w-24 bg-white rounded-full border-4 border-white shadow-md flex items-center justify-center overflow-hidden z-10">
             <Image
-              src="/coolstaylogo.jpg"
+              src="/images/logo/coolstaylogo.jpg"
               alt="CoolStay logo"
               fill
               priority
@@ -54,26 +54,6 @@ export default function DayPassPage() {
               may apply on site.
             </p>
             <p>Day Pass is valid from 07:00 AM to 08:00 PM</p>
-          </div>
-        </div>
-
-        <div className="bg-[#4EA8DE] rounded-3xl p-8 md:p-12 shadow-xl text-center text-white">
-          <h2 className="text-3xl font-serif font-bold mb-8">
-            Book Your Day Pass through our Partners
-          </h2>
-          <div className="grid md:grid-cols-2 gap-6 max-w-2xl mx-auto">
-            <a
-              href="#"
-              className="bg-[#0A1A44] hover:bg-[#0A1A44]/90 text-white rounded-xl h-24 flex items-center justify-center text-3xl font-serif font-bold tracking-widest transition-transform hover:scale-105 shadow-lg"
-            >
-              KLOOK
-            </a>
-            <a
-              href="#"
-              className="bg-[#0A1A44] hover:bg-[#0A1A44]/90 text-white rounded-xl h-24 flex items-center justify-center text-3xl font-serif font-bold tracking-widest transition-transform hover:scale-105 shadow-lg"
-            >
-              AGODA
-            </a>
           </div>
         </div>
       </div>
