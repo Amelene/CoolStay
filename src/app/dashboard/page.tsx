@@ -448,8 +448,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Right Column: Calendar */}
-            {/* ✅ FIX: Added responsive classes to center on mobile and stick on desktop */}
             <div className="w-full flex justify-center lg:justify-end lg:sticky lg:top-24 order-1 lg:order-2 mb-8 lg:mb-0">
               <AvailabilityCalendar />
             </div>

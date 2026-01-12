@@ -1,6 +1,9 @@
+"use client";
+
 import { Button } from "@/components/ui/Button";
 import { AvailabilityCalendar } from "@/components/AvailabilityCalendar";
 import HomeFooter from "./HomeFooter";
+import Link from "next/link"; // 1. Import Link
 
 export default function Hero() {
   return (
@@ -15,7 +18,6 @@ export default function Hero() {
         <div className="relative z-10 w-full max-w-[1440px] px-4 sm:px-8 grid lg:grid-cols-2 gap-8 lg:gap-12 items-center mt-4 md:mt-10">
           {/* Left Side: Title & CTA */}
           <div className="text-white space-y-4 md:space-y-6 text-center lg:text-left animate-in slide-in-from-bottom-10 duration-700">
-            {/* UPDATED FONT SIZES HERE */}
             <h1 className="text-5xl sm:text-7xl md:text-8xl font-bold tracking-tight drop-shadow-lg font-serif">
               CoolStay
             </h1>
@@ -24,14 +26,17 @@ export default function Hero() {
               perfect getaway awaits.
             </p>
             <div className="flex justify-center lg:justify-start pt-2">
-              <Button
-                variant="primary"
-                rounded="full"
-                size="lg"
-                className="bg-[#0A1A44] hover:bg-[#0A1A44]/90 px-8 md:px-10 border border-white/20 h-12 md:h-14 text-base md:text-lg shadow-xl"
-              >
-                Explore Now
-              </Button>
+              {/* 2. Wrap Button in Link */}
+              <Link href="/accommodation">
+                <Button
+                  variant="primary"
+                  rounded="full"
+                  size="lg"
+                  className="bg-[#0A1A44] hover:bg-[#0A1A44]/90 px-8 md:px-10 border border-white/20 h-12 md:h-14 text-base md:text-lg shadow-xl"
+                >
+                  Explore Now
+                </Button>
+              </Link>
             </div>
           </div>
 

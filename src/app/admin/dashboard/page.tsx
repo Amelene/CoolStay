@@ -12,7 +12,6 @@ import {
   LogIn,
   LogOut,
   PlusCircle,
-  QrCode,
   FilePlus,
   Loader2,
   LucideIcon,
@@ -311,7 +310,6 @@ function KpiCard({
   trend,
   bgClass,
   textClass,
-  borderClass,
   subtext,
   alert,
 }: KpiCardProps) {
