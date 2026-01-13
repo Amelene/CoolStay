@@ -126,9 +126,9 @@ export default function BookingReceipt({ booking, payments }: ReceiptProps) {
         <View style={styles.header}>
           <View>
             <Text style={styles.brand}>CoolStay Resort</Text>
-            <Text style={styles.subBrand}>Mandaluyong City, Metro Manila</Text>
+            <Text style={styles.subBrand}>Bulakan, Bulacan Philippines</Text>
             <Text style={styles.subBrand}>
-              contact@coolstay.com | +63 912 345 6789
+              reservations@coolwavesresort.com | +63 9053 976 300
             </Text>
           </View>
           <View style={{ alignItems: "flex-end" }}>

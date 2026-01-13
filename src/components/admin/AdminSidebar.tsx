@@ -73,11 +73,12 @@ const menuGroups = [
   {
     title: "System",
     items: [
-      {
-        name: "Discounts & Promos",
-        href: "/admin/promotions",
-        icon: Megaphone,
-      },
+      // Hide for next feature
+      // {
+      //   name: "Discounts & Promos",
+      //   href: "/admin/promotions",
+      //   icon: Megaphone,
+      // },
       { name: "Activity Logs", href: "/admin/activity-logs", icon: History },
       { name: "Security", href: "/admin/security", icon: ShieldCheck },
     ],
