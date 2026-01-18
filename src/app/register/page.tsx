@@ -20,6 +20,7 @@ import { z } from "zod";
 
 import { createClient } from "@/lib/supabase/client";
 import { Check } from "lucide-react";
+import { signupUser } from "../auth/actions/route";
 
 type RegisterFormValues = z.infer<typeof RegisterSchema>;
 
@@ -150,42 +151,38 @@ export default function RegisterPage() {
     }
   };
 
-  // ... (onSubmit function remains same) ...
   const onSubmit = async (data: RegisterFormValues) => {
     if (isEmailTaken || isPhoneTaken || emailChecking || phoneChecking) return;
 
     setLoading(true);
     const toastId = toast.loading("Creating your account...");
 
-    const supabase = createClient();
-    const { data: authData, error: supabaseError } = await supabase.auth.signUp(
-      {
-        email: data.email,
-        password: data.password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-          data: {
-            full_name: `${data.firstName} ${data.lastName}`,
-            phone: data.phone,
-            gender: data.gender,
-          },
-        },
-      }
-    );
+    try {
+      // CALL THE SERVER ACTION
+      // We pass 'window.location.origin' to ensure the email link points to the correct domain (localhost vs prod)
+      const result = await signupUser(data, window.location.origin);
 
-    if (supabaseError) {
-      toast.dismiss(toastId);
-      toast.error(supabaseError.message);
-      setLoading(false);
-    } else {
-      toast.dismiss(toastId);
-      if (authData.session) {
-        toast.success("Welcome to CoolStay!");
-        router.push("/dashboard");
+      if (!result.success) {
+        toast.dismiss(toastId);
+        toast.error(result.error);
+        setLoading(false);
       } else {
-        toast.success("Account created! Please check your email.");
-        router.push("/login");
+        toast.dismiss(toastId);
+        if (result.session) {
+          // This happens if email confirmation is disabled (auto-login)
+          toast.success("Welcome to CoolStay!");
+          router.push("/dashboard");
+        } else {
+          // Standard flow: Email sent
+          toast.success("Account created! Please check your email to confirm.");
+          router.push("/login");
+        }
       }
+    } catch (err) {
+      console.error(err);
+      toast.dismiss(toastId);
+      toast.error("An unexpected error occurred.");
+      setLoading(false);
     }
   };
 
@@ -223,7 +220,7 @@ export default function RegisterPage() {
                   onChange: (e) => {
                     e.target.value = e.target.value.replace(
                       /[^a-zA-Z\s\-\.\']/g,
-                      ""
+                      "",
                     );
                   },
                 })}
@@ -238,7 +235,7 @@ export default function RegisterPage() {
                   onChange: (e) => {
                     e.target.value = e.target.value.replace(
                       /[^a-zA-Z\s\-\.\']/g,
-                      ""
+                      "",
                     );
                   },
                 })}
@@ -339,10 +336,10 @@ export default function RegisterPage() {
                 {loading
                   ? "Creating Account..."
                   : emailChecking
-                  ? "Checking Email..."
-                  : phoneChecking
-                  ? "Checking Phone..."
-                  : "Create My Account"}
+                    ? "Checking Email..."
+                    : phoneChecking
+                      ? "Checking Phone..."
+                      : "Create My Account"}
               </AuthButton>
             </div>
 
