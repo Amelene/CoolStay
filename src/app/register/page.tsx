@@ -19,7 +19,7 @@ import { RegisterSchema } from "@/lib/schemas";
 import { z } from "zod";
 
 import { Check } from "lucide-react";
-import { signupUser } from "../auth/actions/route";
+import { signupUser } from "@/app/auth/actions";
 
 type RegisterFormValues = z.infer<typeof RegisterSchema>;
 
