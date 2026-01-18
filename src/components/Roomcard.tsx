@@ -1,11 +1,14 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/Button";
 
-// Define the exact shape of the data needed for booking
+// ✅ UPDATE: Detailed pricing structure
 export interface BookingData {
   id: string;
   name: string;
   base_price: number;
+  price_day?: number;
+  price_night?: number;
+  price_overnight?: number;
 }
 
 interface RoomProps {
@@ -16,7 +19,11 @@ interface RoomProps {
   size: string;
   features: string[];
   price: number;
-  onBook: (room: BookingData) => void; // <--- Fixed: No more 'any'
+  // ✅ UPDATE: Prop accepts full pricing details
+  priceDay?: number;
+  priceNight?: number;
+  priceOvernight?: number;
+  onBook: (room: BookingData) => void;
 }
 
 const Stars = ({ count = 5 }: { count?: number }) => (
@@ -37,6 +44,9 @@ export default function RoomCard({
   size,
   features,
   price,
+  priceDay,
+  priceNight,
+  priceOvernight,
   onBook,
 }: RoomProps) {
   return (
@@ -52,9 +62,11 @@ export default function RoomCard({
           <h3 className="text-2xl font-bold text-[#0A1A44] font-serif">
             {title}
           </h3>
-          <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full">
-            ₱{price.toLocaleString()} / night
-          </span>
+          <div className="text-right">
+            <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full block w-fit ml-auto">
+              Starts at ₱{price.toLocaleString()}
+            </span>
+          </div>
         </div>
 
         <p className="text-gray-600 text-sm leading-relaxed mb-6 line-clamp-2">
@@ -98,7 +110,16 @@ export default function RoomCard({
 
           <div className="flex justify-end">
             <Button
-              onClick={() => onBook({ id, name: title, base_price: price })}
+              onClick={() =>
+                onBook({
+                  id,
+                  name: title,
+                  base_price: price,
+                  price_day: priceDay,
+                  price_night: priceNight,
+                  price_overnight: priceOvernight,
+                })
+              }
               className="bg-[#0A1A44] hover:bg-[#0A1A44]/90 text-white px-8 py-2 rounded-lg text-sm font-bold shadow-lg"
             >
               BOOK NOW

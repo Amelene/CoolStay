@@ -18,7 +18,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { RegisterSchema } from "@/lib/schemas";
 import { z } from "zod";
 
-import { createClient } from "@/lib/supabase/client";
 import { Check } from "lucide-react";
 import { signupUser } from "../auth/actions/route";
 

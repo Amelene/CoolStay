@@ -10,84 +10,114 @@ interface DayStatus {
   bookingCount: number;
 }
 
+interface BookingRange {
+  check_in_date: string;
+  check_out_date: string;
+}
+
 export function AvailabilityCalendar() {
   const [viewDate, setViewDate] = useState(new Date());
   const [dayStatuses, setDayStatuses] = useState<Record<string, DayStatus>>({});
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [loading, setLoading] = useState(false);
+  const [totalCapacity, setTotalCapacity] = useState(0); // ✅ NEW STATE
 
+  // ... (date calculation logic remains the same) ...
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
-
   const firstDayOfMonth = new Date(year, month, 1).getDay();
   const emptySlots = firstDayOfMonth;
-
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-
-  // ✅ FIX: Calculate trailing slots to force 6 rows (42 cells)
   const TOTAL_GRID_CELLS = 42;
   const usedCells = emptySlots + daysInMonth;
   const trailingSlots = TOTAL_GRID_CELLS - usedCells;
 
   useEffect(() => {
     const fetchMonthData = async () => {
-      setLoading(true);
       const supabase = createClient();
 
       const {
         data: { user },
       } = await supabase.auth.getUser();
-
       const startDate = new Date(year, month, 1).toISOString();
       const endDate = new Date(year, month + 1, 0).toISOString();
 
-      const { data: bookings } = await supabase
-        .from("bookings")
-        .select("check_in_date, check_out_date, guest_id")
-        .in("status", ["confirmed", "pending", "checked_in"])
-        .lte("check_in_date", endDate)
-        .gte("check_out_date", startDate);
+      const [allBookingsRes, myBookingsRes, capacityRes] = await Promise.all([
+        supabase
+          .from("public_booked_dates")
+          .select("check_in_date, check_out_date")
+          .lte("check_in_date", endDate)
+          .gte("check_out_date", startDate),
+
+        user
+          ? supabase
+              .from("bookings")
+              .select("check_in_date, check_out_date")
+              .eq("guest_id", user.id)
+              .in("status", ["confirmed", "pending", "checked_in"])
+              .lte("check_in_date", endDate)
+              .gte("check_out_date", startDate)
+          : Promise.resolve({ data: [] }),
+
+        // ✅ NEW: Fetch Total Resort Capacity
+        supabase.from("room_types").select("total_rooms"),
+      ]);
+
+      // Calculate Total Capacity across ALL rooms
+      const calculatedCapacity =
+        capacityRes.data?.reduce(
+          (sum, type) => sum + (type.total_rooms || 0),
+          0,
+        ) || 10; // Default to 10 if fetch fails
+
+      setTotalCapacity(calculatedCapacity);
 
       const statusMap: Record<string, DayStatus> = {};
 
-      bookings?.forEach((booking) => {
-        let loopDate = new Date(booking.check_in_date);
-        const loopEnd = new Date(booking.check_out_date);
+      const processBookings = (
+        bookingList: BookingRange[],
+        isPersonal: boolean,
+      ) => {
+        bookingList.forEach((booking) => {
+          let loopDate = new Date(booking.check_in_date);
+          const loopEnd = new Date(booking.check_out_date);
 
-        if (loopDate < new Date(year, month, 1))
-          loopDate = new Date(year, month, 1);
+          if (loopDate < new Date(year, month, 1))
+            loopDate = new Date(year, month, 1);
 
-        while (loopDate < loopEnd && loopDate.getMonth() === month) {
-          const dateKey = loopDate.getDate().toString();
+          while (loopDate < loopEnd && loopDate.getMonth() === month) {
+            const dateKey = loopDate.getDate().toString();
 
-          if (!statusMap[dateKey]) {
-            statusMap[dateKey] = {
-              date: dateKey,
-              isUserBooked: false,
-              bookingCount: 0,
-            };
+            if (!statusMap[dateKey]) {
+              statusMap[dateKey] = {
+                date: dateKey,
+                isUserBooked: false,
+                bookingCount: 0,
+              };
+            }
+
+            if (!isPersonal) {
+              statusMap[dateKey].bookingCount += 1;
+            } else {
+              statusMap[dateKey].isUserBooked = true;
+            }
+
+            loopDate.setDate(loopDate.getDate() + 1);
           }
+        });
+      };
 
-          statusMap[dateKey].bookingCount += 1;
-          if (user && booking.guest_id === user.id) {
-            statusMap[dateKey].isUserBooked = true;
-          }
-
-          loopDate.setDate(loopDate.getDate() + 1);
-        }
-      });
+      if (allBookingsRes.data) processBookings(allBookingsRes.data, false);
+      if (myBookingsRes.data) processBookings(myBookingsRes.data, true);
 
       setDayStatuses(statusMap);
-      setLoading(false);
     };
 
     fetchMonthData();
   }, [year, month]);
 
+  // ... (nextMonth, prevMonth helpers remain the same) ...
   const nextMonth = () => setViewDate(new Date(year, month + 1, 1));
   const prevMonth = () => setViewDate(new Date(year, month - 1, 1));
-
   const monthNames = [
     "January",
     "February",
@@ -105,10 +135,8 @@ export function AvailabilityCalendar() {
 
   return (
     <div className="w-full max-w-[340px] mx-auto">
-      {" "}
-      {/* Added mx-auto for mobile centering */}
       <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl shadow-2xl border border-white/50">
-        {/* Header */}
+        {/* ... (Header and Days Header remain the same) ... */}
         <div className="flex justify-between items-center mb-6">
           <Button
             variant="ghost"
@@ -131,25 +159,23 @@ export function AvailabilityCalendar() {
           </Button>
         </div>
 
-        {/* Days Header */}
         <div className="grid grid-cols-7 gap-2 text-center text-[10px] font-bold text-gray-400 mb-4 uppercase tracking-wider">
           {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
             <span key={d}>{d}</span>
           ))}
         </div>
 
-        {/* Dates Grid */}
         <div className="grid grid-cols-7 gap-y-4 gap-x-2">
-          {/* 1. Leading Empty Slots */}
           {Array.from({ length: emptySlots }).map((_, i) => (
             <div key={`empty-${i}`} />
           ))}
 
-          {/* 2. Actual Days */}
           {days.map((day) => {
             const status = dayStatuses[day.toString()];
             const isMyTrip = status?.isUserBooked;
-            const isFullyBooked = !isMyTrip && (status?.bookingCount || 0) > 0;
+
+            // ✅ FIX: Compare against actual total capacity, not just 0
+            const isFullyBooked = (status?.bookingCount || 0) >= totalCapacity;
 
             const isToday =
               day === new Date().getDate() &&
@@ -164,32 +190,25 @@ export function AvailabilityCalendar() {
                 <span
                   className={`
                   text-sm font-medium transition-all h-8 w-8 flex items-center justify-center rounded-full
-                  ${
-                    isMyTrip
-                      ? "bg-[#0A1A44] text-white shadow-md scale-110 ring-2 ring-blue-200"
-                      : isToday
-                      ? "bg-blue-100 text-blue-900 font-bold"
-                      : "text-gray-700 hover:bg-blue-50"
-                  }
+                  ${isMyTrip ? "bg-[#0A1A44] text-white shadow-md scale-110 ring-2 ring-blue-200" : isToday ? "bg-blue-100 text-blue-900 font-bold" : "text-gray-700 hover:bg-blue-50"}
                 `}
                 >
                   {day}
                 </span>
-
-                {isFullyBooked && (
+                {/* Only show red dot if TRULY full and not my trip */}
+                {isFullyBooked && !isMyTrip && (
                   <span className="absolute -bottom-1 h-1.5 w-1.5 rounded-full bg-red-500 ring-1 ring-white" />
                 )}
               </div>
             );
           })}
 
-          {/* 3. ✅ Trailing Empty Slots (Keeps height uniform) */}
           {Array.from({ length: Math.max(0, trailingSlots) }).map((_, i) => (
             <div key={`trail-${i}`} className="h-8" />
           ))}
         </div>
 
-        {/* Legend */}
+        {/* ... (Legend remains the same) ... */}
         <div className="mt-6 flex flex-wrap justify-center gap-4 text-[10px] text-gray-500 font-medium border-t border-gray-100 pt-4">
           <div className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-[#0A1A44]"></span>
