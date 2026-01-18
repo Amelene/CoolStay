@@ -31,7 +31,7 @@ export const RegisterSchema = z
       .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
       .regex(
         /[0-9!@#$%^&*]/,
-        "Password must contain at least one number or special char"
+        "Password must contain at least one number or special char",
       ),
     confirmPassword: z.string(),
   })
@@ -91,3 +91,31 @@ export const EventInquirySchema = z.object({
     .min(10, "Minimum of 10 guests for events"),
   message: z.string().optional(),
 });
+
+export const ProfileUpdateSchema = z.object({
+  fullName: z
+    .string()
+    .min(2, "Name must be at least 2 characters")
+    .regex(nameRegex, "Name: " + nameError),
+  phone: z
+    .string()
+    .regex(phoneRegex, "Invalid PH phone number (e.g., 0917...)"),
+  gender: z.enum(["Male", "Female", "Prefer not to say"]),
+});
+
+export const PasswordChangeSchema = z
+  .object({
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .regex(/[A-Z]/, "Must contain at least one uppercase letter")
+      .regex(
+        /[0-9!@#$%^&*]/,
+        "Must contain at least one number or special char",
+      ),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });

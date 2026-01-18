@@ -7,7 +7,8 @@ interface AuthInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label: string;
   error?: string;
   isSuccess?: boolean;
-  icon?: LucideIcon; // Added Icon Prop
+  icon?: LucideIcon;
+  variant?: "glass" | "outline"; // ✅ New Prop to control style
 }
 
 export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(
@@ -19,30 +20,47 @@ export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(
       error,
       isSuccess,
       icon: Icon,
+      variant = "glass", // Default to glass for Login/Register
       ...props
     },
-    ref
+    ref,
   ) => {
     const [showPassword, setShowPassword] = useState(false);
     const isPassword = type === "password";
     const inputType = isPassword ? (showPassword ? "text" : "password") : type;
 
-    // Dynamic border color
-    let borderColor = "border-white/20";
-    if (error) borderColor = "border-red-400 ring-2 ring-red-400/20";
+    // --- VARIANT STYLING ---
+    const isGlass = variant === "glass";
+
+    // Text Colors
+    const labelColor = isGlass ? "text-white" : "text-[#0A1A44]";
+    const iconColor = isGlass ? "text-blue-100/70" : "text-gray-400";
+
+    // Input Box Colors
+    const baseStyles = isGlass
+      ? "bg-white/20 text-white placeholder-blue-100/50 focus:ring-white/50 focus:bg-white/30 border-white/20"
+      : "bg-white text-gray-900 placeholder-gray-400 focus:ring-[#0A1A44]/20 focus:border-[#0A1A44] border-gray-200 shadow-sm";
+
+    // Validation Colors
+    let stateStyles = "";
+    if (error) stateStyles = "border-red-400 ring-2 ring-red-400/20";
     else if (isSuccess)
-      borderColor = "border-green-400 ring-2 ring-green-400/20";
+      stateStyles = "border-green-400 ring-2 ring-green-400/20";
 
     return (
       <div className="w-full space-y-2">
-        <label className="text-left text-white text-sm font-medium ml-1 drop-shadow-sm flex justify-between">
+        <label
+          className={`text-left text-sm font-bold ml-1 flex justify-between ${labelColor}`}
+        >
           <span>{label}</span>
         </label>
 
         <div className="relative group">
           {/* Left Icon */}
           {Icon && (
-            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-100/70 z-10">
+            <div
+              className={`absolute left-4 top-1/2 -translate-y-1/2 z-10 ${iconColor}`}
+            >
               <Icon className="w-5 h-5" />
             </div>
           )}
@@ -50,33 +68,26 @@ export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(
           <input
             ref={ref}
             type={inputType}
-            // Added pl-12 if icon exists, else pl-4
-            className={`w-full ${
-              Icon ? "pl-12" : "px-4"
-            } pr-12 py-3 rounded-lg bg-white/20 text-white placeholder-blue-100/50 
-              focus:outline-none focus:ring-2 focus:ring-white/50 focus:bg-white/30 
-              transition-all backdrop-blur-sm ${borderColor} ${className}`}
+            className={`w-full ${Icon ? "pl-12" : "px-4"} pr-12 py-3 rounded-xl 
+              focus:outline-none focus:ring-2 transition-all border
+              ${baseStyles} ${stateStyles} ${className}`}
             {...props}
           />
 
-          {/* Right Icons Container */}
+          {/* Right Icons */}
           <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-            {/* Success Icon */}
             {isSuccess && !error && (
-              <Check className="w-5 h-5 text-green-300 animate-in zoom-in" />
+              <Check className="w-5 h-5 text-green-500 animate-in zoom-in" />
             )}
-
-            {/* Error Icon */}
             {error && (
-              <AlertCircle className="w-5 h-5 text-red-300 animate-in zoom-in" />
+              <AlertCircle className="w-5 h-5 text-red-500 animate-in zoom-in" />
             )}
 
-            {/* Toggle Password */}
             {isPassword && (
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="text-white/70 hover:text-white transition-colors p-1"
+                className={`${isGlass ? "text-white/70 hover:text-white" : "text-gray-400 hover:text-gray-600"} transition-colors p-1`}
                 tabIndex={-1}
               >
                 {showPassword ? (
@@ -89,15 +100,14 @@ export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(
           </div>
         </div>
 
-        {/* Error Message */}
         {error && (
-          <div className="flex items-center gap-1 text-red-200 text-xs ml-1 font-medium bg-red-500/20 px-2 py-1 rounded w-fit animate-in slide-in-from-top-1">
+          <div className="flex items-center gap-1 text-red-600 text-xs ml-1 font-medium bg-red-50 px-2 py-1 rounded w-fit animate-in slide-in-from-top-1">
             {error}
           </div>
         )}
       </div>
     );
-  }
+  },
 );
 
 AuthInput.displayName = "AuthInput";
