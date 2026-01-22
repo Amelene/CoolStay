@@ -6,16 +6,15 @@ export async function POST(request: Request) {
   try {
     const supabase = await createClient();
 
-    // Get Current Admin User
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { supply_id, type, quantity, notes } = await request.json();
+    const { supply_id, type, quantity, notes, room_id } = await request.json();
 
-    // 1. Get Current Stock
+    // 1. Get Current Item
     const { data: item, error: fetchError } = await supabase
       .from("inventory_supplies")
       .select("current_stock, item_name")
@@ -32,11 +31,12 @@ export async function POST(request: Request) {
       newStock += qty;
     } else if (type === "usage") {
       newStock -= qty;
-      if (newStock < 0)
+      if (newStock < 0) {
         return NextResponse.json(
           { error: "Insufficient stock" },
-          { status: 400 }
+          { status: 400 },
         );
+      }
     }
 
     // 3. Update Inventory Table
@@ -51,23 +51,25 @@ export async function POST(request: Request) {
 
     if (updateError) throw updateError;
 
-    // 4. Log usage in supply_usage_logs (for reports)
-    if (type === "usage") {
-      await supabase.from("supply_usage_logs").insert({
-        supply_id,
-        quantity_used: qty,
-        used_by: user.email || "Admin",
-        usage_date: new Date().toISOString(),
-        notes: notes || "Daily usage",
-      });
-    }
+    // 4. ✅ LOG EVERYTHING (IN & OUT)
+    // We use 'supply_usage_logs' as our central ledger.
+    // For Restock: room_id is null, quantity_used is the amount added.
+    await supabase.from("supply_usage_logs").insert({
+      supply_id,
+      room_id: type === "usage" ? room_id || null : null, // Only link room if used
+      quantity_used: qty,
+      used_by: user.user_metadata?.full_name || user.email || "Admin",
+      usage_date: new Date().toISOString(),
+      purpose: type === "restock" ? "Restock" : "Usage/Distribution",
+      notes: notes, // Mandatory in UI now
+    });
 
-    // ✅ 5. LOG ADMIN ACTION (for Audit Trail)
+    // 5. Admin Audit Log
     await logAdminAction(
       supabase,
       user.id,
-      type === "restock" ? "Restocked Inventory" : "Used Inventory",
-      `Item: ${item.item_name} | Qty: ${qty}`
+      type === "restock" ? "Restocked Inventory" : "Distributed Inventory",
+      `Item: ${item.item_name} | Qty: ${qty} | Room: ${room_id || "N/A"}`,
     );
 
     return NextResponse.json({ success: true, new_stock: newStock });

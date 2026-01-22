@@ -8,7 +8,6 @@ import {
   QrCode,
   CheckCircle,
   AlertTriangle,
-  Info,
   ShieldAlert,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
