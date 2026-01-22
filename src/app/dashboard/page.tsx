@@ -22,13 +22,13 @@ import {
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import BookingReceipt from "@/components/pdf/BookingReceipt";
 
+// --- TYPES ---
 interface RoomType {
   id: string;
   name: string;
   image_url: string;
 }
 
-// Payment Interface for Receipt
 interface Payment {
   id: string;
   amount: number;
@@ -50,6 +50,7 @@ interface Booking {
   payments?: Payment[];
 }
 
+// --- COMPONENTS ---
 const WelcomeContent = ({ userName }: { userName: string }) => {
   return (
     <div className="text-white space-y-6 text-center lg:text-left animate-in fade-in slide-in-from-left-10 duration-700">
@@ -59,7 +60,6 @@ const WelcomeContent = ({ userName }: { userName: string }) => {
       <p className="text-lg md:text-xl text-blue-100 max-w-xl mx-auto lg:mx-0 drop-shadow-md font-medium">
         Your exclusive resort experience awaits. View your upcoming trips below.
       </p>
-
       <div className="flex justify-center lg:justify-start pt-4">
         <Link href="/accommodation">
           <Button
@@ -76,7 +76,6 @@ const WelcomeContent = ({ userName }: { userName: string }) => {
   );
 };
 
-// ... (Keep BookingCard component exactly as is) ...
 const BookingCard = ({
   booking,
   onCancel,
@@ -93,17 +92,13 @@ const BookingCard = ({
   user: User | null;
 }) => {
   const room = booking.room_types;
-
   const checkIn = new Date(booking.check_in_date).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
   });
   const checkOut = new Date(booking.check_out_date).toLocaleDateString(
     "en-US",
-    {
-      month: "short",
-      day: "numeric",
-    }
+    { month: "short", day: "numeric" },
   );
 
   const canCancel =
@@ -112,17 +107,13 @@ const BookingCard = ({
     (booking.status === "checked_out" || booking.status === "completed") &&
     !hasReviewed;
 
-  const hasPendingPayment = booking.payments?.some(
-    (p) => p.status === "pending"
-  );
-
   const validPayments =
     booking.payments?.filter((p) => p.status === "completed") || [];
   const totalPaid = validPayments.reduce((sum, p) => sum + p.amount, 0);
-
   const isFullyPaid = totalPaid >= booking.total_amount;
-  const showDownload = totalPaid > 0;
-
+  const hasPendingPayment = booking.payments?.some(
+    (p) => p.status === "pending",
+  );
   const showPayNow =
     (booking.status === "pending" || booking.status === "confirmed") &&
     !isFullyPaid &&
@@ -155,7 +146,6 @@ const BookingCard = ({
         <p className="text-sm text-gray-500 mb-2">
           Booking ID: {booking.id.slice(0, 8)}...
         </p>
-
         <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-900 px-3 py-1.5 rounded-lg text-xs font-bold w-fit mt-1">
           <span>👥 {booking.guests_count} Pax</span>
           <span className="text-blue-300">|</span>
@@ -171,10 +161,10 @@ const BookingCard = ({
             booking.status === "confirmed"
               ? "bg-green-100 text-green-700"
               : booking.status === "pending"
-              ? "bg-yellow-100 text-yellow-700"
-              : booking.status === "cancelled"
-              ? "bg-red-100 text-red-700"
-              : "bg-gray-100 text-gray-700"
+                ? "bg-yellow-100 text-yellow-700"
+                : booking.status === "cancelled"
+                  ? "bg-red-100 text-red-700"
+                  : "bg-gray-100 text-gray-700"
           }`}
         >
           {booking.status.replace("_", " ")}
@@ -195,7 +185,6 @@ const BookingCard = ({
                 <CreditCard className="w-3 h-3" /> Pay Now
               </Button>
             )}
-
             {hasPendingPayment && (
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-lg shadow-sm">
                 <Loader2 className="w-3 h-3 animate-spin" />
@@ -204,8 +193,7 @@ const BookingCard = ({
                 </span>
               </div>
             )}
-
-            {showDownload && (
+            {totalPaid > 0 && (
               <PDFDownloadLink
                 document={
                   <BookingReceipt
@@ -237,7 +225,6 @@ const BookingCard = ({
               Cancel Booking
             </button>
           )}
-
           {canReview && (
             <Button
               size="sm"
@@ -247,17 +234,14 @@ const BookingCard = ({
               <Star className="w-3 h-3" /> Write Review
             </Button>
           )}
-
-          {hasReviewed &&
-            (booking.status === "checked_out" ||
-              booking.status === "completed") && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg shadow-sm">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span className="text-[10px] font-bold uppercase tracking-wide">
-                  Review Submitted
-                </span>
-              </div>
-            )}
+          {hasReviewed && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg shadow-sm">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-bold uppercase tracking-wide">
+                Review Submitted
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -268,7 +252,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [reviewedBookingIds, setReviewedBookingIds] = useState<Set<string>>(
-    new Set()
+    new Set(),
   );
   const [loading, setLoading] = useState(true);
 
@@ -291,24 +275,18 @@ export default function DashboardPage() {
   const fetchBookings = useCallback(async () => {
     if (!user) return;
     try {
-      const supabase = createClient();
+      // ✅ FIX: Call API instead of direct Supabase query to trigger CLEANUP
+      const res = await fetch("/api/bookings");
+      const result = await res.json();
 
-      const { data } = await supabase
-        .from("bookings")
-        .select(
-          `
-            *,
-            room_types (id, name, image_url),
-            payments (*)
-        `
-        )
-        .eq("guest_id", user.id)
-        .order("created_at", { ascending: false });
-
-      if (data) {
-        setBookings(data as Booking[]);
+      if (res.ok && result.bookings) {
+        setBookings(result.bookings);
+      } else {
+        console.error("Fetch error:", result.error);
       }
 
+      // Fetch Reviews (Safe to keep direct)
+      const supabase = createClient();
       const { data: reviews } = await supabase
         .from("reviews")
         .select("booking_id")
@@ -316,7 +294,7 @@ export default function DashboardPage() {
 
       if (reviews) {
         const reviewedIds = new Set(
-          reviews.map((r) => r.booking_id).filter(Boolean)
+          reviews.map((r) => r.booking_id).filter(Boolean),
         );
         setReviewedBookingIds(reviewedIds as Set<string>);
       }
@@ -333,7 +311,6 @@ export default function DashboardPage() {
 
   const handleCancel = async (bookingId: string) => {
     if (!confirm("Are you sure you want to cancel this booking?")) return;
-
     const toastId = toast.loading("Cancelling booking...");
     try {
       const res = await fetch("/api/bookings/cancel", {
@@ -365,7 +342,6 @@ export default function DashboardPage() {
     <main className="min-h-screen flex flex-col font-sans">
       <Navbar activePage="home" logoVariant="text" />
 
-      {/* Review Modal */}
       {reviewBooking && user && reviewBooking.room_types && (
         <ReviewModal
           bookingId={reviewBooking.id}
@@ -373,13 +349,10 @@ export default function DashboardPage() {
           roomName={reviewBooking.room_types.name}
           userId={user.id}
           onClose={() => setReviewBooking(null)}
-          onSuccess={() => {
-            fetchBookings();
-          }}
+          onSuccess={() => fetchBookings()}
         />
       )}
 
-      {/* Payment Modal */}
       {paymentBooking && (
         <UserPaymentModal
           isOpen={isPaymentModalOpen}
@@ -388,9 +361,7 @@ export default function DashboardPage() {
             id: paymentBooking.id,
             total_amount: paymentBooking.total_amount,
           }}
-          onSuccess={() => {
-            fetchBookings();
-          }}
+          onSuccess={() => fetchBookings()}
         />
       )}
 
@@ -400,16 +371,13 @@ export default function DashboardPage() {
         </div>
 
         <div className="relative z-10 w-full max-w-[1440px] mx-auto px-4 sm:px-8 grow flex flex-col justify-center pb-20">
-          {/* ✅ FIX: Changed to flex-col for mobile (vertical stack) and grid for desktop. */}
           <div className="flex flex-col lg:grid lg:grid-cols-2 gap-12 items-start py-12">
-            {/* Left Column: Welcome & Bookings */}
             <div className="w-full space-y-10 order-2 lg:order-1">
               <WelcomeContent
                 userName={
                   user?.user_metadata?.full_name?.split(" ")[0] || "User"
                 }
               />
-
               <div className="space-y-4">
                 <h2 className="text-2xl text-white font-serif font-bold border-b border-white/20 pb-2 mb-4">
                   Your Trips
@@ -447,7 +415,6 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
-
             <div className="w-full flex justify-center lg:justify-end lg:sticky lg:top-24 order-1 lg:order-2 mb-8 lg:mb-0">
               <AvailabilityCalendar />
             </div>
