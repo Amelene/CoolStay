@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Image from "next/image"; // ✅ Import Image component
 import {
   X,
   Upload,
   Loader2,
-  QrCode,
   CheckCircle,
   AlertTriangle,
   ShieldAlert,
@@ -173,12 +173,13 @@ export default function UserPaymentModal({
               <div className="flex-1 flex flex-col items-center justify-center">
                 <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 mb-4 w-full max-w-xs">
                   <div className="relative aspect-square bg-[#0057E7]/5 rounded-2xl flex items-center justify-center overflow-hidden border border-slate-100">
-                    <div className="text-center p-4">
-                      <QrCode className="w-32 h-32 text-[#0A1A44]/20 mx-auto mb-2" />
-                      <span className="text-xs text-slate-400 font-bold uppercase">
-                        Scan Official GCash QR
-                      </span>
-                    </div>
+                    <Image
+                      src="/images/gcash_qr.jpg"
+                      alt="GCash QR Code"
+                      fill
+                      className="object-cover"
+                      priority
+                    />
                   </div>
                 </div>
                 <p className="text-xs text-slate-400 text-center font-medium">
@@ -259,7 +260,7 @@ export default function UserPaymentModal({
                             ? "border-green-500 bg-green-50/30"
                             : "border-slate-300 hover:border-[#0A1A44] hover:bg-slate-50"
                         }
-                     `}
+                      `}
                 >
                   <input
                     type="file"
