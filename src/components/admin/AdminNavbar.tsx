@@ -3,10 +3,29 @@
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { User } from "lucide-react";
+import { User, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 export default function AdminNavbar() {
   const router = useRouter();
+  const [name, setName] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (user && user.user_metadata?.full_name) {
+        setName(user.user_metadata.full_name);
+      }
+      setLoading(false);
+    };
+
+    fetchUser();
+  }, []);
 
   const handleSignOut = async () => {
     const supabase = createClient();
@@ -41,11 +60,18 @@ export default function AdminNavbar() {
           SIGN OUT
         </button>
 
-        <div className="bg-white text-black rounded-full pl-2 pr-4 py-1.5 flex items-center gap-2 shadow-sm">
+        {/* ✅ Dynamic Admin Profile */}
+        <div className="bg-white text-black rounded-full pl-2 pr-4 py-1.5 flex items-center gap-2 shadow-sm min-w-[120px] justify-center">
           <div className="bg-gray-200 rounded-full p-1">
             <User className="w-4 h-4 text-gray-600 fill-current" />
           </div>
-          <span className="font-bold text-sm tracking-wide">ADMIN</span>
+          {loading ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <span className="font-bold text-sm tracking-wide truncate max-w-[150px]">
+              {name || "ADMIN"}
+            </span>
+          )}
         </div>
       </div>
     </header>

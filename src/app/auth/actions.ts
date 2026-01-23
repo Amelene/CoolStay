@@ -63,7 +63,6 @@ export async function updateUserProfile(
     return { success: false, error: "Invalid data. Please check your inputs." };
   }
 
-  // ✅ Use createServerClient() which needs NO arguments
   const supabase = await createServerClient();
   const {
     data: { user },
@@ -71,7 +70,8 @@ export async function updateUserProfile(
 
   if (!user) return { success: false, error: "Unauthorized" };
 
-  const { error } = await supabase
+  // 1. Update Database Table (For persistence/relationships)
+  const { error: dbError } = await supabase
     .from("users")
     .update({
       full_name: parsed.data.fullName,
@@ -81,7 +81,22 @@ export async function updateUserProfile(
     })
     .eq("id", user.id);
 
-  if (error) return { success: false, error: error.message };
+  if (dbError) return { success: false, error: dbError.message };
+
+  // 2. ✅ CRITICAL FIX: Update Auth Metadata (Triggers Navbar Update)
+  const { error: authError } = await supabase.auth.updateUser({
+    data: {
+      full_name: parsed.data.fullName,
+      phone: parsed.data.phone,
+      gender: parsed.data.gender,
+    },
+  });
+
+  if (authError)
+    return {
+      success: false,
+      error: "Profile updated, but session refresh failed.",
+    };
 
   return { success: true };
 }
@@ -96,7 +111,6 @@ export async function changeUserPassword(
     return { success: false, error: "Invalid password format." };
   }
 
-  // ✅ Use createServerClient() which needs NO arguments
   const supabase = await createServerClient();
   const { error } = await supabase.auth.updateUser({
     password: parsed.data.password,

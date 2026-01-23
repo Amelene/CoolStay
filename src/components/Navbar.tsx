@@ -14,7 +14,7 @@ import {
   LogOut,
   LayoutDashboard,
   Settings,
-} from "lucide-react"; // Icons
+} from "lucide-react";
 
 interface NavbarProps {
   activePage?: string;
@@ -36,8 +36,10 @@ export default function Navbar({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const fetchUser = async () => {
-      const supabase = createClient();
+    const supabase = createClient();
+
+    // 1. Initial Fetch
+    const getUser = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -45,12 +47,32 @@ export default function Navbar({
       if (user) {
         setUser(user);
         const fullName = user.user_metadata?.full_name || "Member";
-        setName(fullName.split(" ")[0]);
+        setName(fullName);
       }
       setLoading(false);
     };
 
-    fetchUser();
+    getUser();
+
+    // 2. ✅ LISTENER: Auto-update when profile changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // 'USER_UPDATED' fires when you update profile metadata
+      if (session?.user) {
+        setUser(session.user);
+        const fullName = session.user.user_metadata?.full_name || "Member";
+        setName(fullName);
+      } else if (event === "SIGNED_OUT") {
+        setUser(null);
+        setName(null);
+      }
+    });
+
+    // Cleanup subscription
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Close dropdowns when clicking outside
@@ -102,7 +124,7 @@ export default function Navbar({
   return (
     <nav className="fixed top-0 z-50 w-full bg-[#0A1A44] text-white shadow-md transition-all duration-300">
       <div className="relative mx-auto flex h-20 w-full max-w-[1440px] items-center px-4 sm:px-8">
-        {/* 1. LOGO (Restored Absolute Positioning) */}
+        {/* 1. LOGO */}
         <div
           className={`absolute left-4 sm:left-8 z-50 transition-all duration-500 ${
             logoVariant === "image"
@@ -115,7 +137,6 @@ export default function Navbar({
             onClick={() => setIsMobileMenuOpen(false)}
           >
             {logoVariant === "image" ? (
-              // Added responsive sizing: h-12/w-12 on mobile -> h-32/w-32 on desktop
               <div className="relative h-12 w-12 sm:h-16 sm:w-16 md:h-32 md:w-32 overflow-hidden rounded-full bg-white border-2 md:border-4 border-white shadow-xl flex items-center justify-center transition-transform hover:scale-105 duration-300">
                 <Image
                   src="/images/logo/coolstaylogo.jpg"
@@ -136,7 +157,7 @@ export default function Navbar({
           </Link>
         </div>
 
-        {/* 2. DESKTOP NAVIGATION (Hidden on Mobile) */}
+        {/* 2. DESKTOP NAVIGATION */}
         <div className="hidden md:flex flex-1 justify-center pl-24">
           <div className="flex items-center gap-4 text-sm font-medium tracking-wide uppercase">
             {navLinks.map((link) => (
@@ -151,7 +172,7 @@ export default function Navbar({
           </div>
         </div>
 
-        {/* 3. DESKTOP AUTH / PROFILE (Hidden on Mobile) */}
+        {/* 3. DESKTOP AUTH / PROFILE */}
         <div className="hidden md:block flex-none">
           {!loading && (
             <>
@@ -162,7 +183,7 @@ export default function Navbar({
                     className="group flex items-center gap-3 p-1.5 pr-4 rounded-full hover:bg-white/10 transition-all duration-300 border border-transparent hover:border-white/20 cursor-pointer"
                   >
                     <div className="flex flex-col items-end mr-2">
-                      <span className="text-sm font-bold leading-none group-hover:text-blue-200">
+                      <span className="text-sm font-bold leading-none group-hover:text-blue-200 max-w-[120px] truncate">
                         {name}
                       </span>
                       <span className="text-[10px] text-blue-200 uppercase tracking-wider group-hover:text-white">
@@ -178,7 +199,7 @@ export default function Navbar({
                   {isDropdownOpen && (
                     <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl py-2 text-gray-800 animate-in fade-in zoom-in duration-200 border border-gray-100 ring-1 ring-black/5">
                       <div className="px-4 py-2 border-b border-gray-100">
-                        <p className="text-xs text-gray-500 font-bold uppercase">
+                        <p className="text-xs text-gray-500 font-bold uppercase truncate">
                           {user.email}
                         </p>
                       </div>
@@ -221,7 +242,7 @@ export default function Navbar({
           )}
         </div>
 
-        {/* 4. MOBILE HAMBURGER BUTTON (Visible on Mobile Only) */}
+        {/* 4. MOBILE MENU */}
         <div className="md:hidden ml-auto z-50">
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -236,11 +257,10 @@ export default function Navbar({
         </div>
       </div>
 
-      {/* 5. MOBILE FULL-SCREEN MENU */}
+      {/* 5. MOBILE OVERLAY */}
       {isMobileMenuOpen && (
         <div className="md:hidden fixed inset-0 bg-[#0A1A44] z-40 pt-24 px-4 animate-in slide-in-from-top-10 duration-300">
           <div className="flex flex-col h-full pb-10">
-            {/* Links */}
             <div className="flex flex-col space-y-2">
               {navLinks.map((link) => (
                 <Link
@@ -254,7 +274,6 @@ export default function Navbar({
               ))}
             </div>
 
-            {/* Mobile Auth Section */}
             <div className="mt-auto border-t border-white/20 pt-6">
               {user ? (
                 <div className="space-y-4">
@@ -291,7 +310,6 @@ export default function Navbar({
                 </div>
               ) : (
                 <Link href="/login" onClick={() => setIsMobileMenuOpen(false)}>
-                  {/* ✅ FIXED: Added variant="white" to enforce dark text color on white background */}
                   <Button
                     variant="white"
                     className="w-full font-bold text-lg h-14 rounded-xl shadow-lg text-[#0A1A44]"

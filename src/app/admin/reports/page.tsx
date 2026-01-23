@@ -43,7 +43,6 @@ type AnalyticsData = {
   }[];
 };
 
-// Component for Stat Cards
 type StatCardProps = {
   title: string;
   value: string;
@@ -76,7 +75,7 @@ const StatCard = ({
           <ArrowDownRight className="w-4 h-4" />
         )}
         <span>{change}</span>
-        <span className="text-slate-400 font-medium ml-1">vs last month</span>
+        <span className="text-slate-400 font-medium ml-1">trend</span>
       </div>
     </div>
     <div className="p-3 bg-[#cde4fa] rounded-2xl text-[#0A1A44]">
@@ -89,10 +88,29 @@ export default function ReportsAnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Independent Range States
+  const [revenueRange, setRevenueRange] = useState("year");
+  const [roomsRange, setRoomsRange] = useState("year");
+
+  // Independent Month Selection States (Default to current month YYYY-MM)
+  const currentMonthStr = new Date().toISOString().slice(0, 7);
+  const [revenueMonth, setRevenueMonth] = useState(currentMonthStr);
+  const [roomsMonth, setRoomsMonth] = useState(currentMonthStr);
+
   useEffect(() => {
     const fetchData = async () => {
+      setIsLoading(true);
+
       try {
-        const res = await fetch("/api/admin/analytics");
+        // Construct query parameters
+        const params = new URLSearchParams({
+          revenue_range: revenueRange,
+          revenue_date: revenueMonth,
+          rooms_range: roomsRange,
+          rooms_date: roomsMonth,
+        });
+
+        const res = await fetch(`/api/admin/analytics?${params.toString()}`);
         if (!res.ok) throw new Error("Failed");
         const json = await res.json();
         setData(json);
@@ -103,14 +121,16 @@ export default function ReportsAnalyticsPage() {
       }
     };
     fetchData();
-  }, []);
+  }, [revenueRange, roomsRange, revenueMonth, roomsMonth]);
 
-  if (isLoading)
+  if (!data && isLoading)
     return (
-      <div className="p-10 text-center text-slate-500 animate-pulse">
-        Crunching numbers...
+      <div className="p-20 text-center text-slate-500 flex flex-col items-center">
+        <RefreshCcw className="w-8 h-8 animate-spin mb-2" />
+        <p>Loading analytics...</p>
       </div>
     );
+
   if (!data)
     return (
       <div className="p-10 text-center text-red-500">
@@ -130,10 +150,6 @@ export default function ReportsAnalyticsPage() {
             Real-time performance metrics.
           </p>
         </div>
-        <button className="flex items-center gap-2 bg-[#0A1A44] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#1a3a75] transition-all shadow-lg hover:shadow-xl transform hover:scale-105">
-          <Download className="w-4 h-4" />
-          <span>Export Summary</span>
-        </button>
       </div>
 
       {/* 1. KPI Grid */}
@@ -141,28 +157,28 @@ export default function ReportsAnalyticsPage() {
         <StatCard
           title="Total Revenue"
           value={`₱ ${data.kpi.totalRevenue.toLocaleString()}`}
-          change="+12.5%"
+          change={revenueRange === "year" ? "Annual" : "Period"}
           isPositive={true}
           icon={TrendingUp}
         />
         <StatCard
           title="Total Bookings"
           value={data.kpi.totalBookings.toString()}
-          change="+8.2%"
+          change={roomsRange === "year" ? "Annual" : "Period"}
           isPositive={true}
           icon={CalendarDays}
         />
         <StatCard
           title="Active Guests"
           value={data.kpi.activeGuests.toString()}
-          change="Live"
+          change="Live Now"
           isPositive={true}
           icon={Users}
         />
         <StatCard
           title="Avg. Rating"
           value={data.kpi.avgRating.toString()}
-          change="+0.2"
+          change="Stable"
           isPositive={true}
           icon={BarChart3}
         />
@@ -170,16 +186,43 @@ export default function ReportsAnalyticsPage() {
 
       {/* 2. Main Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        {/* Revenue Chart */}
-        <div className="lg:col-span-2 bg-white rounded-3xl p-8 shadow-sm border border-blue-100">
-          <div className="flex items-center justify-between mb-6">
+        {/* REVENUE CHART */}
+        <div className="lg:col-span-2 bg-white rounded-3xl p-8 shadow-sm border border-blue-100 relative">
+          {isLoading && (
+            <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center">
+              <RefreshCcw className="w-6 h-6 animate-spin text-[#0A1A44]" />
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
             <h3 className="text-xl font-bold text-[#0A1A44]">
-              Revenue Overview (Yearly)
+              Revenue Overview
             </h3>
-            <select className="bg-slate-100 border-none rounded-lg text-sm font-medium px-3 py-1 text-slate-600 focus:ring-0">
-              <option>2025</option>
-            </select>
+
+            <div className="flex flex-wrap gap-2">
+              {/* Revenue Month Picker */}
+              {revenueRange === "month" && (
+                <input
+                  type="month"
+                  value={revenueMonth}
+                  onChange={(e) => setRevenueMonth(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold px-2 py-2 text-slate-700 focus:ring-2 ring-blue-100 outline-none"
+                />
+              )}
+
+              {/* Range Selector */}
+              <select
+                value={revenueRange}
+                onChange={(e) => setRevenueRange(e.target.value)}
+                className="bg-slate-100 border-none rounded-lg text-xs font-bold px-3 py-2 text-slate-600 focus:ring-2 ring-blue-100 cursor-pointer outline-none uppercase tracking-wide"
+              >
+                <option value="week">This Week</option>
+                <option value="month">Monthly</option>
+                <option value="year">This Year</option>
+              </select>
+            </div>
           </div>
+
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data.revenueChart}>
@@ -213,6 +256,11 @@ export default function ReportsAnalyticsPage() {
                     border: "none",
                     boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
                   }}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  formatter={(value: any) => [
+                    `₱${Number(value).toLocaleString()}`,
+                    "Revenue",
+                  ]}
                 />
                 <Area
                   type="monotone"
@@ -221,49 +269,95 @@ export default function ReportsAnalyticsPage() {
                   strokeWidth={3}
                   fillOpacity={1}
                   fill="url(#colorRevenue)"
+                  animationDuration={800}
                 />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Room Popularity */}
-        <div className="bg-[#0A1A44] rounded-3xl p-8 text-white shadow-lg relative overflow-hidden">
+        {/* ROOM POPULARITY CHART */}
+        <div className="bg-[#0A1A44] rounded-3xl p-8 text-white shadow-lg relative overflow-hidden flex flex-col">
+          {isLoading && (
+            <div className="absolute inset-0 bg-[#0A1A44]/50 backdrop-blur-sm z-10 flex items-center justify-center">
+              <RefreshCcw className="w-6 h-6 animate-spin text-white" />
+            </div>
+          )}
+
           <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500 rounded-full blur-3xl opacity-20 -mr-10 -mt-10"></div>
 
-          <h3 className="text-xl font-bold mb-6 relative z-10">
-            Popular Rooms
-          </h3>
-          <div className="h-[300px] w-full relative z-10">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={data.roomPopularity}
-                layout="vertical"
-                barSize={20}
+          {/* ✅ FIXED HEADER LAYOUT */}
+          <div className="flex flex-col gap-3 mb-6 relative z-10">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-bold">Popular Rooms</h3>
+            </div>
+
+            <div className="flex flex-wrap gap-2 w-full">
+              {/* Month Picker */}
+              {roomsRange === "month" && (
+                <input
+                  type="month"
+                  value={roomsMonth}
+                  onChange={(e) => setRoomsMonth(e.target.value)}
+                  className="flex-1 min-w-[120px] bg-white/10 border border-white/20 rounded-lg text-xs font-bold px-2 py-2 text-white focus:ring-2 ring-white/30 outline-none scheme-dark"
+                />
+              )}
+
+              {/* Range Selector */}
+              <select
+                value={roomsRange}
+                onChange={(e) => setRoomsRange(e.target.value)}
+                className="flex-1 min-w-[100px] bg-white/10 border-none rounded-lg text-xs font-bold px-3 py-2 text-white focus:ring-2 ring-white/20 cursor-pointer outline-none uppercase tracking-wide"
               >
-                <XAxis type="number" hide />
-                <YAxis
-                  dataKey="name"
-                  type="category"
-                  width={100}
-                  tick={{ fill: "#94a3b8", fontSize: 12, fontWeight: 600 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  cursor={{ fill: "transparent" }}
-                  contentStyle={{ borderRadius: "8px", color: "#000" }}
-                />
-                <Bar dataKey="bookings" radius={[0, 4, 4, 0]}>
-                  {data.roomPopularity.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={index % 2 === 0 ? "#ffffff" : "#38bdf8"}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+                <option value="week" className="text-slate-800">
+                  This Week
+                </option>
+                <option value="month" className="text-slate-800">
+                  Monthly
+                </option>
+                <option value="year" className="text-slate-800">
+                  This Year
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <div className="h-[300px] w-full relative z-10">
+            {data.roomPopularity.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-blue-200 italic text-sm">
+                No bookings in this period
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={data.roomPopularity}
+                  layout="vertical"
+                  barSize={20}
+                >
+                  <XAxis type="number" hide />
+                  <YAxis
+                    dataKey="name"
+                    type="category"
+                    width={100}
+                    tick={{ fill: "#94a3b8", fontSize: 12, fontWeight: 600 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "transparent" }}
+                    contentStyle={{ borderRadius: "8px", color: "#000" }}
+                  />
+                  <Bar dataKey="bookings" radius={[0, 4, 4, 0]}>
+                    {data.roomPopularity.map((entry, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={index % 2 === 0 ? "#ffffff" : "#38bdf8"}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
       </div>
