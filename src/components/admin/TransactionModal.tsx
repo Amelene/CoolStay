@@ -16,7 +16,6 @@ interface BookingOption {
   room_name?: string;
 }
 
-// Helper Type for Supabase Result
 interface BookingSearchResult {
   id: string;
   total_amount: number;
@@ -54,14 +53,13 @@ export default function TransactionModal({
   // Form State
   const [amount, setAmount] = useState<number | string>("");
   const [method, setMethod] = useState("cash");
-  const [type, setType] = useState("payment");
   const [notes, setNotes] = useState("");
 
   // Search State
   const [searchQuery, setSearchQuery] = useState("");
   const [bookings, setBookings] = useState<BookingOption[]>([]);
   const [selectedBooking, setSelectedBooking] = useState<BookingOption | null>(
-    null
+    null,
   );
   const [isSearching, setIsSearching] = useState(false);
 
@@ -70,14 +68,12 @@ export default function TransactionModal({
     if (isOpen) {
       setNotes("");
       setMethod("cash");
-      setType("payment");
 
       if (prefill) {
-        // We don't have full details for prefill, but we have the ID and Amount needed
         setSelectedBooking({
           id: prefill.bookingId,
           guest_name: prefill.guestName,
-          total_amount: 0, // Not needed for submission
+          total_amount: 0,
           paid: 0,
           balance: prefill.amount,
         });
@@ -108,7 +104,7 @@ export default function TransactionModal({
             users!inner(full_name),
             room_types(name),
             payments(amount, status)
-          `
+          `,
           )
           .ilike("users.full_name", `%${searchQuery}%`)
           .order("created_at", { ascending: false })
@@ -130,7 +126,7 @@ export default function TransactionModal({
                 paid: totalPaid,
                 balance: b.total_amount - totalPaid,
               };
-            }
+            },
           );
           setBookings(formatted);
         }
@@ -156,10 +152,8 @@ export default function TransactionModal({
           booking_id: selectedBooking.id,
           amount: Number(amount),
           method,
-          type,
-          notes:
-            notes ||
-            (type === "payment" ? "Manual payment recorded" : "Refund issued"),
+          type: "payment", // ✅ STRICT PAYMENT ONLY
+          notes: notes || "Manual payment recorded",
         }),
       });
 
@@ -182,7 +176,7 @@ export default function TransactionModal({
       <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="bg-[#0A1A44] p-4 text-white flex justify-between items-center shrink-0">
-          <h2 className="font-bold">Record Transaction</h2>
+          <h2 className="font-bold">Record Payment</h2>
           <button onClick={onClose}>
             <X className="w-5 h-5" />
           </button>
@@ -232,7 +226,6 @@ export default function TransactionModal({
                         onClick={() => {
                           setSelectedBooking(b);
                           setBookings([]);
-                          // Auto-fill amount with balance if it's positive
                           if (b.balance > 0) setAmount(b.balance);
                         }}
                       >
@@ -316,50 +309,19 @@ export default function TransactionModal({
             </div>
           </div>
 
-          {/* 3. Type & Method */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                Type
-              </label>
-              <div className="flex bg-slate-100 p-1 rounded-lg">
-                <button
-                  onClick={() => setType("payment")}
-                  className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${
-                    type === "payment"
-                      ? "bg-green-500 text-white shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  Payment
-                </button>
-                <button
-                  onClick={() => setType("refund")}
-                  className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${
-                    type === "refund"
-                      ? "bg-red-500 text-white shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  Refund
-                </button>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                Method
-              </label>
-              <select
-                value={method}
-                onChange={(e) => setMethod(e.target.value)}
-                className="w-full p-2 border rounded-lg text-sm font-bold bg-white focus:ring-2 ring-blue-100 outline-none"
-              >
-                <option value="cash">Cash</option>
-                <option value="gcash">GCash</option>
-                <option value="card">Card</option>
-                <option value="bank_transfer">Bank Transfer</option>
-              </select>
-            </div>
+          {/* 3. Method Only (No Refund Type) */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              Method
+            </label>
+            <select
+              value={method}
+              onChange={(e) => setMethod(e.target.value)}
+              className="w-full p-3 border rounded-lg text-sm font-bold bg-white focus:ring-2 ring-blue-100 outline-none"
+            >
+              <option value="cash">Cash</option>
+              <option value="gcash">GCash</option>
+            </select>
           </div>
 
           {/* 4. Notes */}
@@ -379,17 +341,9 @@ export default function TransactionModal({
           <Button
             onClick={handleSubmit}
             disabled={loading || !selectedBooking || !amount}
-            className={`w-full py-6 text-base shadow-lg transition-all active:scale-95 ${
-              type === "refund"
-                ? "bg-red-600 hover:bg-red-700"
-                : "bg-[#0A1A44] hover:bg-blue-900"
-            }`}
+            className="w-full py-6 text-base shadow-lg bg-[#0A1A44] hover:bg-blue-900 transition-all active:scale-95"
           >
-            {loading ? (
-              <Loader2 className="animate-spin" />
-            ) : (
-              `Confirm ${type === "payment" ? "Payment" : "Refund"}`
-            )}
+            {loading ? <Loader2 className="animate-spin" /> : "Confirm Payment"}
           </Button>
         </div>
       </div>

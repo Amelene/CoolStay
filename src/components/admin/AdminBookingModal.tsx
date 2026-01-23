@@ -1,16 +1,21 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Button } from "@/components/ui/Button";
-import { X, Loader2, User, CreditCard } from "lucide-react";
-import { toast } from "sonner";
+import { useState, useEffect, useRef } from "react";
+import {
+  X,
+  Loader2,
+  Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight,
+  Users,
+  Baby,
+  Milk,
+  Plus,
+  Minus,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-
-interface RoomType {
-  id: string;
-  name: string;
-  base_price: number;
-}
+import { toast } from "sonner";
+import { Button } from "@/components/ui/Button";
 
 interface AdminBookingModalProps {
   isOpen: boolean;
@@ -18,350 +23,453 @@ interface AdminBookingModalProps {
   onSuccess: () => void;
 }
 
+interface RoomType {
+  id: string;
+  name: string;
+  base_price: number;
+}
+
+// --- HELPER FUNCTIONS FOR CALENDAR ---
+const getDaysInMonth = (year: number, month: number) =>
+  new Date(year, month + 1, 0).getDate();
+const getFirstDayOfMonth = (year: number, month: number) =>
+  new Date(year, month, 1).getDay();
+
 export default function AdminBookingModal({
   isOpen,
   onClose,
   onSuccess,
 }: AdminBookingModalProps) {
   const [loading, setLoading] = useState(false);
-  const [rooms, setRooms] = useState<RoomType[]>([]);
+  const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
 
   // Form State
-  const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    roomId: "",
-    checkIn: "",
-    checkOut: "",
-    guests: 2,
-    // New Payment Fields
-    initialPayment: 0,
-    paymentMethod: "cash",
-  });
+  const [roomId, setRoomId] = useState("");
+  const [checkIn, setCheckIn] = useState("");
+  const [checkOut, setCheckOut] = useState("");
 
-  // Calculate Total (Helper)
-  const selectedRoom = rooms.find((r) => r.id === formData.roomId);
-  const calculateTotal = () => {
-    if (!formData.checkIn || !formData.checkOut || !selectedRoom) return 0;
-    const start = new Date(formData.checkIn);
-    const end = new Date(formData.checkOut);
-    const diff = end.getTime() - start.getTime();
-    const nights = Math.ceil(diff / (1000 * 3600 * 24)) || 1;
-    return selectedRoom.base_price * nights;
-  };
-  const totalAmount = calculateTotal();
+  // Guest Counters
+  const [adults, setAdults] = useState(1);
+  const [children, setChildren] = useState(0);
+  const [infants, setInfants] = useState(0);
 
-  // Fetch Rooms on Open
+  const [totalAmount, setTotalAmount] = useState<number>(0);
+  const [notes, setNotes] = useState("");
+
+  // Calendar State
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [viewDate, setViewDate] = useState(new Date());
+  const [hoverDate, setHoverDate] = useState<string | null>(null);
+  const calendarRef = useRef<HTMLDivElement>(null);
+
+  // 1. Fetch Rooms
   useEffect(() => {
-    if (isOpen) {
-      const fetchRooms = async () => {
-        const supabase = createClient();
-        const { data } = await supabase
-          .from("room_types")
-          .select("id, name, base_price");
-        if (data) setRooms(data);
-      };
-      fetchRooms();
-      setFormData((prev) => ({
-        ...prev,
-        checkIn: new Date().toISOString().split("T")[0],
-        initialPayment: 0, // Reset
-      }));
-    }
+    const fetchRooms = async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("room_types")
+        .select("id, name, base_price")
+        .eq("is_active", true);
+      if (data) setRoomTypes(data);
+    };
+    if (isOpen) fetchRooms();
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  // 2. Auto-Calculate Price (Read-Only Logic)
+  useEffect(() => {
+    if (roomId && checkIn && checkOut) {
+      const start = new Date(checkIn);
+      const end = new Date(checkOut);
+      const diffTime = end.getTime() - start.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      const room = roomTypes.find((r) => r.id === roomId);
+
+      if (room && diffDays > 0) {
+        setTotalAmount(room.base_price * diffDays);
+      } else {
+        setTotalAmount(0);
+      }
+    } else {
+      setTotalAmount(0);
+    }
+  }, [roomId, checkIn, checkOut, roomTypes]);
+
+  // 3. Handle Outside Clicks for Calendar
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        calendarRef.current &&
+        !calendarRef.current.contains(event.target as Node)
+      ) {
+        setShowCalendar(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // --- CALENDAR LOGIC ---
+  const handleDateClick = (dateStr: string) => {
+    if (!checkIn || (checkIn && checkOut && checkIn !== checkOut)) {
+      setCheckIn(dateStr);
+      setCheckOut("");
+    } else if (checkIn && !checkOut) {
+      if (dateStr < checkIn) {
+        setCheckIn(dateStr);
+      } else {
+        setCheckOut(dateStr);
+        setShowCalendar(false);
+      }
+    } else if (checkIn && checkOut && checkIn === checkOut) {
+      setCheckIn(dateStr);
+      setCheckOut("");
+    }
+  };
+
+  const renderMonth = (offset: number) => {
+    const targetDate = new Date(
+      viewDate.getFullYear(),
+      viewDate.getMonth() + offset,
+      1,
+    );
+    const year = targetDate.getFullYear();
+    const month = targetDate.getMonth();
+    const daysInMonth = getDaysInMonth(year, month);
+    const firstDay = getFirstDayOfMonth(year, month);
+    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+    const emptySlots = Array.from({ length: firstDay }, (_, i) => i);
+    const monthNames = [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    ];
+
+    return (
+      <div className="w-64 p-2">
+        <div className="text-center font-bold text-[#0A1A44] mb-2 font-serif">
+          {monthNames[month]} {year}
+        </div>
+        <div className="grid grid-cols-7 gap-1 text-center text-[10px] text-gray-400 font-bold mb-1">
+          {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
+            <span key={d}>{d}</span>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {emptySlots.map((i) => (
+            <div key={`empty-${i}`} />
+          ))}
+          {days.map((day) => {
+            const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+            const todayStr = new Date().toISOString().split("T")[0];
+            const isPast = dateStr < todayStr;
+            const isSelected = dateStr === checkIn || dateStr === checkOut;
+            const isInRange =
+              checkIn && checkOut && dateStr > checkIn && dateStr < checkOut;
+            const isHoverRange =
+              !checkOut &&
+              checkIn &&
+              hoverDate &&
+              dateStr > checkIn &&
+              dateStr <= hoverDate;
+
+            let bgClass = "hover:bg-blue-50 text-gray-700";
+            if (isPast) bgClass = "text-gray-300 cursor-not-allowed";
+            else if (isSelected) bgClass = "bg-[#0A1A44] text-white shadow-md";
+            else if (isInRange) bgClass = "bg-blue-100 text-[#0A1A44]";
+            else if (isHoverRange)
+              bgClass =
+                "bg-blue-50 text-[#0A1A44] border border-blue-200 dashed";
+
+            return (
+              <button
+                key={day}
+                type="button"
+                disabled={isPast}
+                onClick={() => handleDateClick(dateStr)}
+                onMouseEnter={() => setHoverDate(dateStr)}
+                className={`h-8 w-8 text-xs rounded-full flex items-center justify-center transition-all ${bgClass}`}
+              >
+                {day}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   const handleSubmit = async () => {
+    if (!roomId || !checkIn || !checkOut || !totalAmount) {
+      toast.error("Please fill in all required fields.");
+      return;
+    }
     setLoading(true);
+
     try {
       const res = await fetch("/api/admin/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          room_type_id: roomId,
+          check_in_date: checkIn,
+          check_out_date: checkOut,
+          adults,
+          children,
+          infants,
+          guests_count: adults + children,
+          total_amount: totalAmount,
+          special_requests: notes,
+        }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error("Failed to create booking");
 
-      toast.success("Booking created successfully!");
+      toast.success("Booking created!");
       onSuccess();
       onClose();
-    } catch (error: unknown) {
-      let errorMessage = "Failed to create booking";
-      if (error instanceof Error) errorMessage = error.message;
-      toast.error(errorMessage);
+    } catch {
+      toast.error("Error creating booking");
     } finally {
       setLoading(false);
     }
   };
 
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+      <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="bg-[#0A1A44] p-5 text-white flex justify-between items-center shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="bg-white/10 p-2 rounded-lg">
-              <User className="w-5 h-5 text-blue-200" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold font-serif">
-                New Walk-in Booking
-              </h2>
-              <p className="text-xs text-blue-200">Book for a guest manually</p>
-            </div>
+          <div>
+            <h2 className="font-serif font-bold text-xl">New Booking</h2>
+            <p className="text-xs text-blue-200">
+              Manually reserve a room for a guest
+            </p>
           </div>
           <button
             onClick={onClose}
-            className="hover:bg-white/10 p-1 rounded-full transition-colors"
+            className="p-1 hover:bg-white/10 rounded-full transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="p-6 overflow-y-auto space-y-6">
-          {/* Section 1: Guest Details (Keep Same) */}
-          <div className="space-y-4">
-            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest border-b pb-2">
-              Guest Information
-            </h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  First Name
-                </label>
-                <input
-                  type="text"
-                  className="w-full p-2 border rounded-lg bg-gray-50 focus:ring-2 ring-blue-900 outline-none"
-                  value={formData.firstName}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      firstName: e.target.value.replace(
-                        /[^a-zA-Z\s\-\.\']/g,
-                        ""
-                      ),
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Last Name
-                </label>
-                <input
-                  type="text"
-                  className="w-full p-2 border rounded-lg bg-gray-50 focus:ring-2 ring-blue-900 outline-none"
-                  value={formData.lastName}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      lastName: e.target.value.replace(
-                        /[^a-zA-Z\s\-\.\']/g,
-                        ""
-                      ),
-                    })
-                  }
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email (Optional)
-                </label>
-                <input
-                  type="email"
-                  placeholder="guest@example.com"
-                  className="w-full p-2 border rounded-lg bg-gray-50 focus:ring-2 ring-blue-900 outline-none"
-                  value={formData.email}
-                  onChange={(e) =>
-                    setFormData({ ...formData, email: e.target.value })
-                  }
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone
-                </label>
-                <input
-                  type="text"
-                  placeholder="09..."
-                  className="w-full p-2 border rounded-lg bg-gray-50 focus:ring-2 ring-blue-900 outline-none"
-                  value={formData.phone}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      phone: e.target.value.replace(/[^0-9+]/g, ""),
-                    })
-                  }
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Section 2: Room & Dates (Keep Same) */}
-          <div className="space-y-4">
-            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest border-b pb-2 mt-2">
-              Reservation Details
-            </h3>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Select Room
-              </label>
+        <div className="p-6 space-y-6 overflow-y-auto">
+          {/* 1. Room Selector */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
+              Select Room
+            </label>
+            <div className="relative">
               <select
-                className="w-full p-2 border rounded-lg bg-gray-50 focus:ring-2 ring-blue-900 outline-none"
-                value={formData.roomId}
-                onChange={(e) =>
-                  setFormData({ ...formData, roomId: e.target.value })
-                }
+                className="w-full p-3 border border-slate-200 rounded-xl bg-white text-sm font-bold text-slate-700 outline-none focus:ring-2 ring-[#0A1A44]"
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
               >
                 <option value="">-- Choose a Room --</option>
-                {rooms.map((room) => (
-                  <option key={room.id} value={room.id}>
-                    {room.name} — ₱{room.base_price.toLocaleString()}
+                {roomTypes.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name} — ₱{r.base_price.toLocaleString()} / night
                   </option>
                 ))}
               </select>
             </div>
+          </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Check In
-                </label>
-                <input
-                  type="date"
-                  className="w-full p-2 border rounded-lg bg-gray-50 focus:ring-2 ring-blue-900 outline-none"
-                  value={formData.checkIn}
-                  onChange={(e) =>
-                    setFormData({ ...formData, checkIn: e.target.value })
-                  }
-                />
+          {/* 2. Calendar Date Picker */}
+          <div className="relative" ref={calendarRef}>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
+              Dates of Stay
+            </label>
+            <div
+              onClick={() => setShowCalendar(!showCalendar)}
+              className={`w-full p-3 border border-slate-200 rounded-xl flex items-center justify-between cursor-pointer bg-white hover:border-[#0A1A44] transition-all ${showCalendar ? "ring-2 ring-[#0A1A44] border-transparent" : ""}`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-50 p-2 rounded-lg text-[#0A1A44]">
+                  <CalendarIcon className="w-5 h-5" />
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Check In — Check Out
+                  </span>
+                  <span
+                    className={`text-sm font-bold ${checkIn ? "text-slate-800" : "text-slate-400"}`}
+                  >
+                    {checkIn
+                      ? new Date(checkIn).toLocaleDateString()
+                      : "Select Date"}
+                    {" — "}
+                    {checkOut
+                      ? new Date(checkOut).toLocaleDateString()
+                      : "Select Date"}
+                  </span>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Check Out
-                </label>
-                <input
-                  type="date"
-                  className="w-full p-2 border rounded-lg bg-gray-50 focus:ring-2 ring-blue-900 outline-none"
-                  value={formData.checkOut}
-                  onChange={(e) =>
-                    setFormData({ ...formData, checkOut: e.target.value })
-                  }
-                />
+            </div>
+
+            {/* Calendar Popover */}
+            {showCalendar && (
+              <div className="absolute top-full left-0 right-0 mt-2 z-50 bg-white rounded-2xl shadow-xl border border-slate-100 p-4 flex flex-col md:flex-row gap-4 animate-in zoom-in-95 origin-top">
+                <div className="absolute top-4 left-4 right-4 flex justify-between pointer-events-none">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setViewDate(
+                        new Date(viewDate.setMonth(viewDate.getMonth() - 1)),
+                      )
+                    }
+                    className="pointer-events-auto p-1 hover:bg-slate-100 rounded-full text-slate-600"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setViewDate(
+                        new Date(viewDate.setMonth(viewDate.getMonth() + 1)),
+                      )
+                    }
+                    className="pointer-events-auto p-1 hover:bg-slate-100 rounded-full text-slate-600"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="flex justify-center w-full">
+                  {renderMonth(0)}
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Guests
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  className="w-full p-2 border rounded-lg bg-gray-50 focus:ring-2 ring-blue-900 outline-none"
-                  value={formData.guests}
-                  onChange={(e) =>
-                    setFormData({ ...formData, guests: Number(e.target.value) })
-                  }
-                />
+            )}
+          </div>
+
+          {/* 3. Guest Counters */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+              Guest Breakdown
+            </label>
+            <div className="grid grid-cols-3 gap-3">
+              {/* Adults */}
+              <div className="flex flex-col items-center p-2 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold text-[#0A1A44] uppercase mb-1 flex items-center gap-1">
+                  <Users className="w-3 h-3" /> Adults
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setAdults(Math.max(1, adults - 1))}
+                    className="w-6 h-6 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 text-slate-600"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <span className="w-6 text-center font-bold text-[#0A1A44]">
+                    {adults}
+                  </span>
+                  <button
+                    onClick={() => setAdults(adults + 1)}
+                    className="w-6 h-6 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 text-slate-600"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Children */}
+              <div className="flex flex-col items-center p-2 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold text-[#0A1A44] uppercase mb-1 flex items-center gap-1">
+                  <Baby className="w-3 h-3" /> Kids
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setChildren(Math.max(0, children - 1))}
+                    className="w-6 h-6 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 text-slate-600"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <span className="w-6 text-center font-bold text-[#0A1A44]">
+                    {children}
+                  </span>
+                  <button
+                    onClick={() => setChildren(children + 1)}
+                    className="w-6 h-6 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 text-slate-600"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Infants */}
+              <div className="flex flex-col items-center p-2 rounded-xl border border-blue-200 bg-blue-50/50">
+                <span className="text-[10px] font-bold text-blue-600 uppercase mb-1 flex items-center gap-1">
+                  <Milk className="w-3 h-3" /> Infants
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setInfants(Math.max(0, infants - 1))}
+                    className="w-6 h-6 bg-white rounded-full flex items-center justify-center hover:bg-blue-100 text-blue-600 shadow-sm"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <span className="w-6 text-center font-bold text-blue-700">
+                    {infants}
+                  </span>
+                  <button
+                    onClick={() => setInfants(infants + 1)}
+                    className="w-6 h-6 bg-white rounded-full flex items-center justify-center hover:bg-blue-100 text-blue-600 shadow-sm"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Section 3: Payment (UPDATED) */}
-          <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-4">
-            <div className="flex items-center gap-3 border-b border-blue-100 pb-2">
-              <CreditCard className="w-5 h-5 text-blue-600" />
-              <div>
-                <p className="text-sm font-bold text-blue-900">
-                  Payment & Billing
-                </p>
-                <p className="text-xs text-blue-600">
-                  Total Bill:{" "}
-                  <span className="font-bold text-lg ml-1">
-                    ₱{totalAmount.toLocaleString()}
-                  </span>
-                </p>
-              </div>
+          {/* 4. Total Amount (Read-Only) */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase">
+                Total Estimate
+              </p>
+              <p className="text-[10px] text-slate-400">
+                Based on room rate & nights
+              </p>
             </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-blue-900 mb-1 uppercase">
-                  Initial Payment
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-900 font-bold">
-                    ₱
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    max={totalAmount}
-                    className="w-full pl-8 p-2 border border-blue-200 rounded-lg text-sm font-bold text-blue-900 outline-none focus:ring-2 ring-blue-500"
-                    value={formData.initialPayment}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        initialPayment: Number(e.target.value),
-                      })
-                    }
-                  />
-                </div>
-                <p className="text-[10px] text-blue-600 mt-1">
-                  Leave 0 for Pay Later
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-blue-900 mb-1 uppercase">
-                  Method
-                </label>
-                <select
-                  className="w-full p-2 border border-blue-200 rounded-lg text-sm font-bold text-blue-900 outline-none"
-                  value={formData.paymentMethod}
-                  onChange={(e) =>
-                    setFormData({ ...formData, paymentMethod: e.target.value })
-                  }
-                >
-                  <option value="cash">Cash</option>
-                  <option value="gcash">GCash</option>
-                  <option value="card">Card</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Balance Preview */}
-            <div className="flex justify-between items-center pt-2 text-sm">
-              <span className="text-blue-700">Balance Due:</span>
-              <span className="font-bold text-red-600">
-                ₱{(totalAmount - formData.initialPayment).toLocaleString()}
+            <div className="text-right">
+              <span className="text-2xl font-serif font-bold text-[#0A1A44]">
+                ₱{totalAmount.toLocaleString()}
               </span>
             </div>
           </div>
-        </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t bg-gray-50 flex justify-end gap-3">
-          <Button variant="outline" onClick={onClose} disabled={loading}>
-            Cancel
-          </Button>
+          {/* 5. Notes */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
+              Special Requests / Notes
+            </label>
+            <textarea
+              className="w-full p-3 border border-slate-200 rounded-xl text-sm focus:ring-2 ring-[#0A1A44] outline-none"
+              rows={2}
+              placeholder="e.g. Early check-in requested, VIP guest..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+
           <Button
-            className="bg-[#0A1A44] text-white hover:bg-blue-900 px-6"
             onClick={handleSubmit}
-            disabled={loading || !formData.roomId || !formData.firstName}
+            disabled={loading}
+            className="w-full py-6 text-base bg-[#0A1A44] hover:bg-blue-900 text-white shadow-lg shadow-blue-900/20 rounded-xl"
           >
-            {loading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              "Confirm Booking"
-            )}
+            {loading ? <Loader2 className="animate-spin" /> : "Confirm Booking"}
           </Button>
         </div>
       </div>

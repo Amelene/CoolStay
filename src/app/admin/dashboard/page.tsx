@@ -47,10 +47,9 @@ interface KpiCardProps {
   value: string;
   icon: LucideIcon;
   trend?: string;
-  // FIX: Explicit color classes for perfect contrast
-  bgClass: string; // e.g. "bg-green-100"
-  textClass: string; // e.g. "text-green-600"
-  borderClass: string; // e.g. "border-green-200" (optional highlight)
+  bgClass: string;
+  textClass: string;
+  borderClass: string;
   subtext?: string;
   alert?: boolean;
 }
@@ -120,54 +119,66 @@ export default function AdminDashboardHome() {
               <PlusCircle className="w-4 h-4" /> New Booking
             </button>
           </Link>
-          {/* <button className="flex items-center gap-2 bg-white text-slate-700 border border-slate-200 px-4 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 transition-colors">
-            <QrCode className="w-4 h-4" /> Scan Pass
-          </button> */}
         </div>
       </div>
 
-      {/* 2. KPI CARDS */}
+      {/* 2. KPI CARDS (Wrapped in Links) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KpiCard
-          label="Today's Revenue"
-          value={`₱${(data.revenue || 0).toLocaleString()}`}
-          icon={DollarSign}
-          trend="+12% from yesterday"
-          bgClass="bg-green-100"
-          textClass="text-green-600"
-          borderClass="border-green-200"
-        />
-        <KpiCard
-          label="Active Guests"
-          value={(data.activeGuests || 0).toString()}
-          icon={Users}
-          bgClass="bg-blue-100"
-          textClass="text-blue-600"
-          borderClass="border-blue-200"
-          subtext="Checked-in right now"
-        />
-        <KpiCard
-          label="Action Items"
-          value={(data.actionItems || 0).toString()}
-          icon={Bell}
-          bgClass="bg-orange-100"
-          textClass="text-orange-600"
-          borderClass="border-orange-200"
-          subtext={`${data.pendingBookings || 0} Pending, ${
-            data.newInquiries || 0
-          } Inquiries`}
-          alert={(data.actionItems || 0) > 0}
-        />
-        <KpiCard
-          label="Inventory Alerts"
-          value={(data.lowStockCount || 0).toString()}
-          icon={AlertTriangle}
-          bgClass="bg-red-100"
-          textClass="text-red-600"
-          borderClass="border-red-200"
-          subtext="Items below minimum stock"
-          alert={(data.lowStockCount || 0) > 0}
-        />
+        {/* REVENUE -> Billing */}
+        <Link href="/admin/billing" className="group">
+          <KpiCard
+            label="Today's Revenue"
+            value={`₱${(data.revenue || 0).toLocaleString()}`}
+            icon={DollarSign}
+            trend="+12% from yesterday"
+            bgClass="bg-green-100"
+            textClass="text-green-600"
+            borderClass="border-green-200"
+          />
+        </Link>
+
+        {/* ACTIVE GUESTS -> Customers */}
+        <Link href="/admin/customers" className="group">
+          <KpiCard
+            label="Active Guests"
+            value={(data.activeGuests || 0).toString()}
+            icon={Users}
+            bgClass="bg-blue-100"
+            textClass="text-blue-600"
+            borderClass="border-blue-200"
+            subtext="Checked-in right now"
+          />
+        </Link>
+
+        {/* ACTION ITEMS -> Bookings */}
+        <Link href="/admin/bookings" className="group">
+          <KpiCard
+            label="Action Items"
+            value={(data.actionItems || 0).toString()}
+            icon={Bell}
+            bgClass="bg-orange-100"
+            textClass="text-orange-600"
+            borderClass="border-orange-200"
+            subtext={`${data.pendingBookings || 0} Pending, ${
+              data.newInquiries || 0
+            } Inquiries`}
+            alert={(data.actionItems || 0) > 0}
+          />
+        </Link>
+
+        {/* INVENTORY ALERTS -> Inventory */}
+        <Link href="/admin/inventory" className="group">
+          <KpiCard
+            label="Inventory Alerts"
+            value={(data.lowStockCount || 0).toString()}
+            icon={AlertTriangle}
+            bgClass="bg-red-100"
+            textClass="text-red-600"
+            borderClass="border-red-200"
+            subtext="Items below minimum stock"
+            alert={(data.lowStockCount || 0) > 0}
+          />
+        </Link>
       </div>
 
       {/* 3. LOGISTICS GRID */}
@@ -316,7 +327,7 @@ function KpiCard({
   return (
     <div
       className={`
-      relative overflow-hidden bg-white p-6 rounded-2xl border transition-all duration-300 hover:shadow-lg
+      relative overflow-hidden bg-white p-6 rounded-2xl border transition-all duration-300 group-hover:shadow-lg group-hover:-translate-y-1 cursor-pointer
       ${
         alert
           ? "border-orange-200 ring-4 ring-orange-50"
@@ -324,13 +335,13 @@ function KpiCard({
       }
     `}
     >
-      {/* Decorative Blur Circle - Using same colors for theme consistency */}
+      {/* Decorative Blur Circle */}
       <div
         className={`absolute right-0 top-0 w-24 h-24 -mr-6 -mt-6 rounded-full opacity-20 ${bgClass}`}
       ></div>
 
       <div className="flex items-start justify-between mb-4 relative z-10">
-        {/* ICON CONTAINER: Using explicit classes passed from parent */}
+        {/* ICON CONTAINER */}
         <div className={`p-3 rounded-xl ${bgClass} ${textClass}`}>
           <Icon className="w-6 h-6" />
         </div>

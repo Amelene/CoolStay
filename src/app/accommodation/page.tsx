@@ -16,6 +16,9 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
+  Plus,
+  Minus,
+  ChevronDown,
 } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 
@@ -50,13 +53,21 @@ function AccommodationContent() {
   // Search State
   const [checkInDate, setCheckInDate] = useState("");
   const [checkOutDate, setCheckOutDate] = useState("");
-  const [guestCount, setGuestCount] = useState<number | string>(2);
+
+  // Track 3 Categories
+  const [adults, setAdults] = useState(2);
+  const [children, setChildren] = useState(0);
+  const [infants, setInfants] = useState(0);
+
+  const [showGuestMenu, setShowGuestMenu] = useState(false);
 
   // Calendar UI State
   const [showCalendar, setShowCalendar] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
   const [hoverDate, setHoverDate] = useState<string | null>(null);
+
   const calendarRef = useRef<HTMLDivElement>(null);
+  const guestMenuRef = useRef<HTMLDivElement>(null);
 
   // Selected room for Modal
   const [selectedRoom, setSelectedRoom] = useState<BookingData | null>(null);
@@ -69,7 +80,6 @@ function AccommodationContent() {
 
         const returnCheckIn = searchParams.get("check_in");
         const returnCheckOut = searchParams.get("check_out");
-        const returnGuests = searchParams.get("guests");
         const returnRoomId = searchParams.get("room_id");
 
         if (returnCheckIn) {
@@ -77,7 +87,6 @@ function AccommodationContent() {
           setViewDate(new Date(returnCheckIn));
         }
         if (returnCheckOut) setCheckOutDate(returnCheckOut);
-        if (returnGuests) setGuestCount(parseInt(returnGuests));
 
         if (returnRoomId) {
           const supabase = createClient();
@@ -114,7 +123,6 @@ function AccommodationContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Close calendar on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -122,6 +130,12 @@ function AccommodationContent() {
         !calendarRef.current.contains(event.target as Node)
       ) {
         setShowCalendar(false);
+      }
+      if (
+        guestMenuRef.current &&
+        !guestMenuRef.current.contains(event.target as Node)
+      ) {
+        setShowGuestMenu(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -142,7 +156,6 @@ function AccommodationContent() {
     }
   };
 
-  // --- CALENDAR LOGIC ---
   const handleDateClick = (dateStr: string) => {
     if (
       !checkInDate ||
@@ -267,14 +280,16 @@ function AccommodationContent() {
 
     setSearching(true);
     const supabase = createClient();
-    const validGuestCount = Number(guestCount) || 1;
+
+    // Capacity check: Adults + Children
+    const totalGuests = adults + children;
 
     try {
       const { data: allRooms, error: roomsError } = await supabase
         .from("room_types")
         .select("*")
         .eq("is_active", true)
-        .gte("capacity", validGuestCount);
+        .gte("capacity", totalGuests);
 
       if (roomsError) throw roomsError;
 
@@ -320,7 +335,7 @@ function AccommodationContent() {
       setRooms(availableRooms);
 
       if (availableRooms.length === 0) {
-        toast.info("No rooms available for these dates.");
+        toast.info("No rooms available for this group size/date.");
       } else {
         toast.success(`Found ${availableRooms.length} available rooms!`);
       }
@@ -332,6 +347,15 @@ function AccommodationContent() {
     }
   };
 
+  // --- FORMATTED GUEST TEXT ---
+  const guestText = [
+    adults > 0 ? `${adults} Adult${adults > 1 ? "s" : ""}` : null,
+    children > 0 ? `${children} Child${children > 1 ? "ren" : ""}` : null,
+    infants > 0 ? `${infants} Infant${infants > 1 ? "s" : ""}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
   return (
     <main className="min-h-screen bg-[#D6EAF8]">
       <Navbar activePage="accommodation" logoVariant="text" />
@@ -342,12 +366,13 @@ function AccommodationContent() {
           onClose={() => setSelectedRoom(null)}
           initialCheckIn={checkInDate}
           initialCheckOut={checkOutDate}
-          initialGuests={Number(guestCount) || 2}
+          initialAdults={adults}
+          initialChildren={children}
+          initialInfants={infants}
         />
       )}
 
       <div className="pt-28 pb-20 px-4 sm:px-8 max-w-[1440px] mx-auto">
-        {/* --- SEARCH BAR SECTION --- */}
         <div className="relative bg-[#0077B6] rounded-3xl p-6 md:p-8 shadow-xl text-white mb-12 mt-8 animate-in slide-in-from-top-10 duration-700">
           <div className="absolute -top-12 left-1/2 -translate-x-1/2 h-24 w-24 bg-white rounded-full border-4 border-white shadow-md flex items-center justify-center overflow-hidden z-10">
             <Image
@@ -360,8 +385,7 @@ function AccommodationContent() {
           </div>
 
           <div className="pt-8 grid grid-cols-1 md:grid-cols-12 gap-6 items-end">
-            {/* DATE PICKER TRIGGER */}
-            {/* Changed from space-y-2 to flex flex-col gap-2 for stability */}
+            {/* 1. DATE PICKER */}
             <div
               className="md:col-span-5 flex flex-col gap-2 relative z-20"
               ref={calendarRef}
@@ -370,7 +394,6 @@ function AccommodationContent() {
                 <span>Check In & Out</span>
               </div>
 
-              {/* TRIGGER BOX */}
               <div
                 onClick={() => setShowCalendar(!showCalendar)}
                 className={`bg-white text-gray-700 rounded-xl flex items-center h-14 px-2 shadow-inner overflow-hidden cursor-pointer transition-all ${showCalendar ? "ring-2 ring-[#0A1A44]" : "hover:ring-2 ring-[#0A1A44]/20"}`}
@@ -408,10 +431,8 @@ function AccommodationContent() {
                 <CalendarIcon className="w-5 h-5 text-gray-400 mr-2" />
               </div>
 
-              {/* CALENDAR POPOVER */}
               {showCalendar && (
                 <div className="absolute top-full left-0 mt-4 z-50 bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 flex flex-col md:flex-row gap-4 animate-in zoom-in-95 origin-top-left w-full md:w-auto">
-                  {/* Controls */}
                   <div className="absolute top-4 left-4 right-4 flex justify-between pointer-events-none">
                     <button
                       type="button"
@@ -436,8 +457,6 @@ function AccommodationContent() {
                       <ChevronRight className="w-5 h-5" />
                     </button>
                   </div>
-
-                  {/* Dual Grid */}
                   <div className="flex gap-4 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
                     {renderMonth(0)}
                     <div className="hidden md:block w-px bg-slate-100"></div>
@@ -447,36 +466,133 @@ function AccommodationContent() {
               )}
             </div>
 
-            {/* GUESTS INPUT */}
-            <div className="md:col-span-4 flex flex-col gap-2">
+            {/* 2. GUEST PICKER (FIXED TEXT) */}
+            <div
+              className="md:col-span-4 flex flex-col gap-2 relative"
+              ref={guestMenuRef}
+            >
               <span className="text-xs font-semibold uppercase tracking-wider opacity-90">
                 Guests
               </span>
-              <div className="bg-white text-gray-700 rounded-xl h-14 flex items-center px-4 shadow-inner relative hover:ring-2 ring-[#0A1A44]/20 transition-all">
-                <Users className="w-5 h-5 text-gray-400 mr-3" />
-                <input
-                  type="number"
-                  min="1"
-                  max="20"
-                  className="w-full outline-none font-bold text-[#0A1A44] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  value={guestCount}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === "") {
-                      setGuestCount("");
-                    } else {
-                      const num = parseInt(val);
-                      if (!isNaN(num)) setGuestCount(num);
-                    }
-                  }}
+
+              <div
+                onClick={() => setShowGuestMenu(!showGuestMenu)}
+                className={`bg-white text-gray-700 rounded-xl h-14 flex items-center px-4 shadow-inner relative hover:ring-2 ring-[#0A1A44]/20 transition-all cursor-pointer ${showGuestMenu ? "ring-2 ring-[#0A1A44]" : ""}`}
+              >
+                <Users className="w-5 h-5 text-gray-400 mr-3 shrink-0" />
+                <div className="flex-1 flex flex-col justify-center overflow-hidden">
+                  <span className="text-[10px] text-gray-400 uppercase font-bold">
+                    Total
+                  </span>
+                  {/* ✅ SHOW FULL BREAKDOWN WITH TRUNCATE */}
+                  <span
+                    className="text-sm font-bold text-[#0A1A44] truncate"
+                    title={guestText}
+                  >
+                    {guestText}
+                  </span>
+                </div>
+                <ChevronDown
+                  className={`w-4 h-4 text-gray-400 transition-transform shrink-0 ml-2 ${showGuestMenu ? "rotate-180" : ""}`}
                 />
-                <span className="absolute right-4 text-xs font-bold text-gray-400 pointer-events-none">
-                  PAX
-                </span>
               </div>
+
+              {/* GUEST POPOVER */}
+              {showGuestMenu && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-slate-100 p-4 z-50 animate-in zoom-in-95 origin-top min-w-[280px]">
+                  {/* Adults Row */}
+                  <div className="flex justify-between items-center mb-4">
+                    <div>
+                      <p className="text-sm font-bold text-slate-700">Adults</p>
+                      <p className="text-[10px] text-slate-400 font-medium">
+                        Ages 13+
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setAdults(Math.max(1, adults - 1))}
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className="w-4 text-center font-bold text-[#0A1A44]">
+                        {adults}
+                      </span>
+                      <button
+                        onClick={() => setAdults(adults + 1)}
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="h-px bg-slate-100 w-full mb-4"></div>
+
+                  {/* Children Row */}
+                  <div className="flex justify-between items-center mb-4">
+                    <div>
+                      <p className="text-sm font-bold text-slate-700">
+                        Children
+                      </p>
+                      <p className="text-[10px] text-slate-400 font-medium">
+                        Ages 3-12
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setChildren(Math.max(0, children - 1))}
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className="w-4 text-center font-bold text-[#0A1A44]">
+                        {children}
+                      </span>
+                      <button
+                        onClick={() => setChildren(children + 1)}
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="h-px bg-slate-100 w-full mb-4"></div>
+
+                  {/* Infants Row */}
+                  <div className="flex justify-between items-center mb-4">
+                    <div>
+                      <p className="text-sm font-bold text-slate-700">
+                        Infants
+                      </p>
+                      <p className="text-[10px] text-slate-400 font-medium">
+                        Ages 0-2 Yrs (Free)
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setInfants(Math.max(0, infants - 1))}
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className="w-4 text-center font-bold text-[#0A1A44]">
+                        {infants}
+                      </span>
+                      <button
+                        onClick={() => setInfants(infants + 1)}
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* SEARCH BUTTON */}
+            {/* 3. SEARCH BUTTON */}
             <div className="md:col-span-3">
               <Button
                 onClick={handleSearch}
@@ -507,7 +623,7 @@ function AccommodationContent() {
           ) : rooms.length === 0 ? (
             <div className="text-center py-20 bg-white/50 rounded-3xl border-2 border-dashed border-[#0077B6]/30">
               <p className="text-xl text-[#0A1A44] font-bold">No rooms found</p>
-              <p className="text--[#0A1A44]/60 mt-2">
+              <p className="text-[#0A1A44]/60 mt-2">
                 Try changing your dates or guest count.
               </p>
               <Button

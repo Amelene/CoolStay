@@ -14,10 +14,15 @@ import UserPaymentModal from "@/components/UserPaymentModal";
 import { toast } from "sonner";
 import {
   Star,
-  CheckCircle2,
   CreditCard,
   Download,
   Loader2,
+  CalendarDays,
+  Users,
+  Baby,
+  Milk,
+  Hash,
+  MapPin,
 } from "lucide-react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import BookingReceipt from "@/components/pdf/BookingReceipt";
@@ -45,7 +50,11 @@ interface Booking {
   total_amount: number;
   status: string;
   payment_status?: string;
+  // ✅ Updated Guest Fields
   guests_count: number;
+  adults: number;
+  children: number;
+  infants: number;
   room_types: RoomType | null;
   payments?: Payment[];
 }
@@ -66,7 +75,7 @@ const WelcomeContent = ({ userName }: { userName: string }) => {
             variant="primary"
             rounded="full"
             size="lg"
-            className="bg-[#0A1A44] hover:bg-[#0A1A44]/90 px-10 border border-white/20 shadow-lg"
+            className="bg-[#0A1A44] hover:bg-[#0A1A44]/90 px-10 border border-white/20 shadow-lg transition-transform hover:scale-105"
           >
             BOOK ANOTHER STAY
           </Button>
@@ -95,10 +104,23 @@ const BookingCard = ({
   const checkIn = new Date(booking.check_in_date).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
+    year: "numeric",
   });
   const checkOut = new Date(booking.check_out_date).toLocaleDateString(
     "en-US",
-    { month: "short", day: "numeric" },
+    {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    },
+  );
+
+  // Calculate Nights
+  const start = new Date(booking.check_in_date);
+  const end = new Date(booking.check_out_date);
+  const nights = Math.max(
+    1,
+    Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)),
   );
 
   const canCancel =
@@ -128,120 +150,182 @@ const BookingCard = ({
     },
   };
 
+  // Status Styling
+  const statusStyles = {
+    confirmed: "bg-green-100 text-green-700 border-green-200",
+    pending: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    cancelled: "bg-red-100 text-red-700 border-red-200",
+    checked_in: "bg-blue-100 text-blue-700 border-blue-200",
+    checked_out: "bg-slate-100 text-slate-700 border-slate-200",
+    completed: "bg-slate-100 text-slate-700 border-slate-200",
+  };
+  const currentStatusStyle =
+    statusStyles[booking.status as keyof typeof statusStyles] ||
+    statusStyles.pending;
+
   return (
-    <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-4 flex flex-col md:flex-row gap-4 shadow-xl border border-white/50 transition-transform hover:scale-[1.02]">
-      <div className="w-full md:w-32 h-32 relative rounded-xl overflow-hidden shrink-0">
-        <Image
-          src={room?.image_url || "/images/background/coolstaybg.png"}
-          alt={room?.name || "Room"}
-          fill
-          className="object-cover"
-        />
-      </div>
+    <div className="group relative bg-white/95 backdrop-blur-md rounded-3xl p-5 shadow-xl border border-white/40 transition-all hover:scale-[1.01] hover:shadow-2xl overflow-hidden">
+      {/* Decorative Gradient Bar */}
+      <div
+        className={`absolute left-0 top-0 bottom-0 w-2 ${booking.status === "confirmed" ? "bg-green-500" : booking.status === "pending" ? "bg-yellow-400" : "bg-slate-300"}`}
+      />
 
-      <div className="flex-1 flex flex-col justify-center">
-        <h3 className="text-[#0A1A44] font-bold font-serif text-xl">
-          {room?.name || "Standard Room"}
-        </h3>
-        <p className="text-sm text-gray-500 mb-2">
-          Booking ID: {booking.id.slice(0, 8)}...
-        </p>
-        <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-900 px-3 py-1.5 rounded-lg text-xs font-bold w-fit mt-1">
-          <span>👥 {booking.guests_count} Pax</span>
-          <span className="text-blue-300">|</span>
-          <span>
-            {checkIn} — {checkOut}
-          </span>
-        </div>
-      </div>
-
-      <div className="flex flex-col justify-between items-end">
-        <span
-          className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
-            booking.status === "confirmed"
-              ? "bg-green-100 text-green-700"
-              : booking.status === "pending"
-                ? "bg-yellow-100 text-yellow-700"
-                : booking.status === "cancelled"
-                  ? "bg-red-100 text-red-700"
-                  : "bg-gray-100 text-gray-700"
-          }`}
-        >
-          {booking.status.replace("_", " ")}
-        </span>
-
-        <div className="text-right mt-2 space-y-2 flex flex-col items-end">
-          <p className="text-xl font-bold text-[#0A1A44]">
-            ₱{booking.total_amount?.toLocaleString()}
-          </p>
-
-          <div className="flex gap-2 items-center flex-wrap justify-end">
-            {showPayNow && (
-              <Button
-                size="sm"
-                onClick={() => onPay(booking)}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 flex items-center gap-1 shadow-md transition-all active:scale-95"
-              >
-                <CreditCard className="w-3 h-3" /> Pay Now
-              </Button>
-            )}
-            {hasPendingPayment && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-lg shadow-sm">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                <span className="text-[10px] font-bold uppercase tracking-wide">
-                  Verifying...
-                </span>
-              </div>
-            )}
-            {totalPaid > 0 && (
-              <PDFDownloadLink
-                document={
-                  <BookingReceipt
-                    booking={receiptData}
-                    payments={validPayments}
-                  />
-                }
-                fileName={`Receipt_${booking.id.substring(0, 8)}.pdf`}
-                className="bg-slate-800 hover:bg-slate-900 text-white text-xs h-8 px-3 rounded-md flex items-center gap-1 shadow-md transition-all active:scale-95 font-medium"
-              >
-                {({ loading }) =>
-                  loading ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : (
-                    <>
-                      <Download className="w-3 h-3" /> Receipt
-                    </>
-                  )
-                }
-              </PDFDownloadLink>
-            )}
+      <div className="flex flex-col md:flex-row gap-6 pl-3">
+        {/* IMAGE SECTION */}
+        <div className="w-full md:w-40 h-40 relative rounded-2xl overflow-hidden shadow-sm shrink-0 border border-slate-100">
+          <Image
+            src={room?.image_url || "/images/background/coolstaybg.png"}
+            alt={room?.name || "Room"}
+            fill
+            className="object-cover group-hover:scale-110 transition-transform duration-700"
+          />
+          <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg text-[10px] font-bold text-[#0A1A44] shadow-sm flex items-center gap-1">
+            <MapPin className="w-3 h-3" /> Resort View
           </div>
+        </div>
 
-          {canCancel && (
-            <button
-              onClick={() => onCancel(booking.id)}
-              className="text-xs text-red-500 hover:text-red-700 underline font-semibold mt-1"
-            >
-              Cancel Booking
-            </button>
-          )}
-          {canReview && (
-            <Button
-              size="sm"
-              onClick={() => onReview(booking)}
-              className="bg-[#0A1A44] text-xs h-8 flex items-center gap-1"
-            >
-              <Star className="w-3 h-3" /> Write Review
-            </Button>
-          )}
-          {hasReviewed && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg shadow-sm">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span className="text-[10px] font-bold uppercase tracking-wide">
-                Review Submitted
+        {/* DETAILS SECTION */}
+        <div className="flex-1 flex flex-col justify-between py-1">
+          <div>
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="text-[#0A1A44] font-bold font-serif text-2xl leading-tight">
+                  {room?.name || "Standard Room"}
+                </h3>
+                <div className="flex items-center gap-2 mt-1 text-xs text-slate-400 font-mono">
+                  <Hash className="w-3 h-3" />
+                  <span>ID: {booking.id.slice(0, 8).toUpperCase()}</span>
+                </div>
+              </div>
+              <span
+                className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${currentStatusStyle}`}
+              >
+                {booking.status.replace("_", " ")}
               </span>
             </div>
-          )}
+
+            {/* INFO GRID */}
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              {/* Dates */}
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 flex items-center gap-1">
+                  <CalendarDays className="w-3 h-3" /> Dates ({nights} Nights)
+                </p>
+                <p className="text-xs font-bold text-slate-700">
+                  {checkIn} — {checkOut}
+                </p>
+              </div>
+
+              {/* Guest Breakdown */}
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 flex items-center gap-1">
+                  <Users className="w-3 h-3" /> Guests
+                </p>
+                <div className="flex items-center gap-3 text-xs font-bold text-slate-700">
+                  <span className="flex items-center gap-1" title="Adults">
+                    {booking.adults || 1}{" "}
+                    <Users className="w-3 h-3 text-slate-400" />
+                  </span>
+                  {booking.children > 0 && (
+                    <>
+                      <span className="text-slate-300">|</span>
+                      <span
+                        className="flex items-center gap-1"
+                        title="Children"
+                      >
+                        {booking.children}{" "}
+                        <Baby className="w-3 h-3 text-slate-400" />
+                      </span>
+                    </>
+                  )}
+                  {booking.infants > 0 && (
+                    <>
+                      <span className="text-slate-300">|</span>
+                      <span className="flex items-center gap-1" title="Infants">
+                        {booking.infants}{" "}
+                        <Milk className="w-3 h-3 text-blue-400" />
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* FOOTER ACTIONS */}
+          <div className="flex flex-wrap items-end justify-between mt-5 pt-4 border-t border-slate-100">
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase">
+                Total Price
+              </p>
+              <p className="text-xl font-black text-[#0A1A44]">
+                ₱{booking.total_amount?.toLocaleString()}
+              </p>
+            </div>
+
+            <div className="flex gap-2 items-center">
+              {showPayNow && (
+                <Button
+                  size="sm"
+                  onClick={() => onPay(booking)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-lg shadow-blue-200 transition-all hover:-translate-y-0.5"
+                >
+                  <CreditCard className="w-3.5 h-3.5" /> Pay Balance
+                </Button>
+              )}
+
+              {hasPendingPayment && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-xl shadow-sm">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span className="text-[10px] font-bold uppercase">
+                    Verifying
+                  </span>
+                </div>
+              )}
+
+              {totalPaid > 0 && (
+                <PDFDownloadLink
+                  document={
+                    <BookingReceipt
+                      booking={receiptData}
+                      payments={validPayments}
+                    />
+                  }
+                  fileName={`Receipt_${booking.id.substring(0, 8)}.pdf`}
+                  className="bg-slate-800 hover:bg-slate-900 text-white text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-md transition-all hover:-translate-y-0.5"
+                >
+                  {({ loading }) =>
+                    loading ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <>
+                        <Download className="w-3.5 h-3.5" /> Receipt
+                      </>
+                    )
+                  }
+                </PDFDownloadLink>
+              )}
+
+              {canCancel && (
+                <button
+                  onClick={() => onCancel(booking.id)}
+                  className="text-xs text-red-500 hover:text-red-700 font-bold px-3 py-2 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
+
+              {canReview && (
+                <Button
+                  size="sm"
+                  onClick={() => onReview(booking)}
+                  className="bg-[#0A1A44] text-xs h-9 rounded-xl shadow-md"
+                >
+                  <Star className="w-3 h-3 mr-1" /> Review
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -275,7 +359,6 @@ export default function DashboardPage() {
   const fetchBookings = useCallback(async () => {
     if (!user) return;
     try {
-      // ✅ FIX: Call API instead of direct Supabase query to trigger CLEANUP
       const res = await fetch("/api/bookings");
       const result = await res.json();
 
@@ -285,7 +368,6 @@ export default function DashboardPage() {
         console.error("Fetch error:", result.error);
       }
 
-      // Fetch Reviews (Safe to keep direct)
       const supabase = createClient();
       const { data: reviews } = await supabase
         .from("reviews")
@@ -372,22 +454,26 @@ export default function DashboardPage() {
 
         <div className="relative z-10 w-full max-w-[1440px] mx-auto px-4 sm:px-8 grow flex flex-col justify-center pb-20">
           <div className="flex flex-col lg:grid lg:grid-cols-2 gap-12 items-start py-12">
+            {/* LEFT COLUMN: Welcome & Trips */}
             <div className="w-full space-y-10 order-2 lg:order-1">
               <WelcomeContent
                 userName={
                   user?.user_metadata?.full_name?.split(" ")[0] || "User"
                 }
               />
-              <div className="space-y-4">
-                <h2 className="text-2xl text-white font-serif font-bold border-b border-white/20 pb-2 mb-4">
-                  Your Trips
+
+              <div className="space-y-6">
+                <h2 className="text-2xl text-white font-serif font-bold border-b border-white/20 pb-2 flex items-center gap-2">
+                  <CalendarDays className="w-6 h-6" /> Your Trips
                 </h2>
+
                 {loading ? (
-                  <div className="text-white/60 animate-pulse">
-                    Loading your trips...
+                  <div className="flex items-center justify-center py-20 text-white/60 animate-pulse bg-white/5 rounded-3xl border border-white/10">
+                    <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading
+                    your trips...
                   </div>
                 ) : bookings.length > 0 ? (
-                  <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                  <div className="space-y-5 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar p-1">
                     {bookings.map((booking) => (
                       <BookingCard
                         key={booking.id}
@@ -401,22 +487,28 @@ export default function DashboardPage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="bg-white/10 backdrop-blur-md p-6 rounded-2xl border border-white/20 text-center">
-                    <p className="text-blue-100 mb-2">
+                  <div className="bg-white/10 backdrop-blur-md p-8 rounded-3xl border border-white/20 text-center flex flex-col items-center gap-3">
+                    <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mb-2">
+                      <CalendarDays className="w-8 h-8 text-blue-200" />
+                    </div>
+                    <p className="text-blue-100 text-lg">
                       You haven&apos;t booked any trips yet.
                     </p>
-                    <Link
-                      href="/accommodation"
-                      className="text-white font-bold underline hover:text-blue-200"
-                    >
-                      Browse Rooms
+                    <Link href="/accommodation">
+                      <Button className="bg-white text-[#0A1A44] hover:bg-blue-50 font-bold mt-2">
+                        Browse Available Rooms
+                      </Button>
                     </Link>
                   </div>
                 )}
               </div>
             </div>
+
+            {/* RIGHT COLUMN: Calendar */}
             <div className="w-full flex justify-center lg:justify-end lg:sticky lg:top-24 order-1 lg:order-2 mb-8 lg:mb-0">
-              <AvailabilityCalendar />
+              <div className="transform transition-transform hover:scale-[1.02] duration-500">
+                <AvailabilityCalendar />
+              </div>
             </div>
           </div>
         </div>

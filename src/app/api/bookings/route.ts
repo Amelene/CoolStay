@@ -63,7 +63,7 @@ export async function GET() {
       ),
       payments (*) 
     `,
-    ) // ✅ Added payments relation
+    )
     .eq("guest_id", user.id)
     .order("check_in_date", { ascending: false });
 
@@ -90,14 +90,23 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { room_type_id, check_in, check_out, guests, total_price } = body;
+    // ✅ Extract the specific counts
+    const {
+      room_type_id,
+      check_in,
+      check_out,
+      adults,
+      children,
+      infants,
+      total_price,
+    } = body;
 
     const adminDb = createAdminClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
 
-    // 1. GLOBAL CLEANUP: Free up rooms before checking availability
+    // 1. GLOBAL CLEANUP
     await cleanupExpiredBookings(adminDb);
 
     // 2. Check Room Details
@@ -148,7 +157,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 4. Create Booking
+    // 4. Create Booking with breakdown
     const { data, error: insertError } = await adminDb
       .from("bookings")
       .insert({
@@ -156,7 +165,10 @@ export async function POST(request: Request) {
         room_type_id,
         check_in_date: check_in,
         check_out_date: check_out,
-        guests_count: guests,
+        guests_count: (Number(adults) || 1) + (Number(children) || 0), // Legacy Sum
+        adults: Number(adults) || 1, // ✅ Save Adults
+        children: Number(children) || 0, // ✅ Save Children
+        infants: Number(infants) || 0, // ✅ Save Infants
         total_amount: total_price,
         status: "pending",
         payment_status: "pending",

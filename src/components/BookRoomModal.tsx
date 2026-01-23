@@ -13,6 +13,11 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Users,
+  Baby,
+  Plus,
+  Minus,
+  Milk,
 } from "lucide-react";
 
 // --- TYPES ---
@@ -30,7 +35,9 @@ interface BookRoomModalProps {
   onClose: () => void;
   initialCheckIn?: string;
   initialCheckOut?: string;
-  initialGuests?: number;
+  initialAdults?: number;
+  initialChildren?: number;
+  initialInfants?: number;
 }
 
 type StayType = "day" | "night" | "overnight";
@@ -46,7 +53,9 @@ export default function BookRoomModal({
   onClose,
   initialCheckIn = "",
   initialCheckOut = "",
-  initialGuests = 2,
+  initialAdults = 1,
+  initialChildren = 0,
+  initialInfants = 0,
 }: BookRoomModalProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -60,16 +69,20 @@ export default function BookRoomModal({
 
   const [checkIn, setCheckIn] = useState(initialCheckIn);
   const [checkOut, setCheckOut] = useState(initialCheckOut);
-  const [guests, setGuests] = useState(initialGuests);
+
+  // ✅ Individual Counters
+  const [adults, setAdults] = useState(initialAdults);
+  const [children, setChildren] = useState(initialChildren);
+  const [infants, setInfants] = useState(initialInfants);
+
   const [error, setError] = useState<string | null>(null);
 
   // Calendar UI State
   const [showCalendar, setShowCalendar] = useState(false);
-  const [viewDate, setViewDate] = useState(new Date()); // Controls which months are shown
+  const [viewDate, setViewDate] = useState(new Date());
   const [hoverDate, setHoverDate] = useState<string | null>(null);
   const calendarRef = useRef<HTMLDivElement>(null);
 
-  // --- INIT LOGIC (Run Once) ---
   useEffect(() => {
     if (initialCheckIn && initialCheckOut) {
       const start = new Date(initialCheckIn);
@@ -80,12 +93,10 @@ export default function BookRoomModal({
       } else {
         setStayType("overnight");
       }
-      setViewDate(start); // Jump calendar to selected date
+      setViewDate(start);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialCheckIn, initialCheckOut, room.price_day, room.price_night]);
 
-  // Close calendar if clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -100,7 +111,6 @@ export default function BookRoomModal({
   }, []);
 
   // --- PRICE CALCULATION ---
-  let nights = 0;
   let totalPrice = 0;
 
   if (checkIn && checkOut) {
@@ -110,57 +120,44 @@ export default function BookRoomModal({
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     if (stayType === "day") {
-      nights = 1;
       totalPrice = room.price_day || room.base_price;
     } else if (stayType === "night") {
-      nights = 1;
       totalPrice = room.price_night || room.base_price;
     } else {
       if (diffDays > 0) {
-        nights = diffDays;
         totalPrice = diffDays * (room.price_overnight || room.base_price);
       }
     }
   }
 
-  // --- HANDLERS ---
   const handleStayTypeChange = (type: StayType) => {
     setStayType(type);
     if (type !== "overnight" && checkIn) {
-      setCheckOut(checkIn); // Auto-lock single day
+      setCheckOut(checkIn);
     }
   };
 
-  // Calendar Date Selection Logic
   const handleDateClick = (dateStr: string) => {
-    // 1. Day/Night Tour (Single Click)
     if (stayType !== "overnight") {
       setCheckIn(dateStr);
       setCheckOut(dateStr);
-      setShowCalendar(false); // Done selection
+      setShowCalendar(false);
       return;
     }
 
-    // 2. Overnight (Range Logic)
     if (!checkIn || (checkIn && checkOut && checkIn !== checkOut)) {
-      // Start new selection
       setCheckIn(dateStr);
       setCheckOut("");
     } else if (checkIn && !checkOut) {
-      // Completing the range
       if (dateStr < checkIn) {
-        // User clicked before start date -> Reset start
         setCheckIn(dateStr);
       } else if (dateStr === checkIn) {
-        // Clicked same date in overnight mode -> Invalid (needs 1 night)
         toast.error("Overnight stays require at least 1 night.");
       } else {
-        // Valid range
         setCheckOut(dateStr);
         setShowCalendar(false);
       }
     } else if (checkIn && checkOut && checkIn === checkOut) {
-      // Resetting from a single-day state
       setCheckIn(dateStr);
       setCheckOut("");
     }
@@ -202,7 +199,9 @@ export default function BookRoomModal({
       params.set("room_id", room.id);
       params.set("check_in", checkIn);
       params.set("check_out", checkOut);
-      params.set("guests", guests.toString());
+      params.set("adults", adults.toString());
+      params.set("children", children.toString());
+      params.set("infants", infants.toString());
       router.push(
         `/login?return_to=${encodeURIComponent(`/accommodation?${params.toString()}`)}`,
       );
@@ -217,7 +216,10 @@ export default function BookRoomModal({
           room_type_id: room.id,
           check_in: checkIn,
           check_out: checkOut,
-          guests: guests,
+          adults: adults, // ✅ Sending Breakdown
+          children: children, // ✅ Sending Breakdown
+          infants: infants, // ✅ Sending Breakdown
+          guests: adults + children,
           total_price: totalPrice,
         }),
       });
@@ -239,7 +241,6 @@ export default function BookRoomModal({
     }
   };
 
-  // --- CALENDAR RENDERER ---
   const renderMonth = (offset: number) => {
     const targetDate = new Date(
       viewDate.getFullYear(),
@@ -248,12 +249,10 @@ export default function BookRoomModal({
     );
     const year = targetDate.getFullYear();
     const month = targetDate.getMonth();
-
     const daysInMonth = getDaysInMonth(year, month);
     const firstDay = getFirstDayOfMonth(year, month);
     const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
     const emptySlots = Array.from({ length: firstDay }, (_, i) => i);
-
     const monthNames = [
       "January",
       "February",
@@ -287,8 +286,6 @@ export default function BookRoomModal({
             const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
             const todayStr = new Date().toISOString().split("T")[0];
             const isPast = dateStr < todayStr;
-
-            // Selection Logic
             const isSelected = dateStr === checkIn || dateStr === checkOut;
             const isInRange =
               checkIn && checkOut && dateStr > checkIn && dateStr < checkOut;
@@ -314,10 +311,7 @@ export default function BookRoomModal({
                 disabled={isPast}
                 onClick={() => handleDateClick(dateStr)}
                 onMouseEnter={() => setHoverDate(dateStr)}
-                className={`
-                  h-8 w-8 text-xs rounded-full flex items-center justify-center transition-all
-                  ${bgClass}
-                `}
+                className={`h-8 w-8 text-xs rounded-full flex items-center justify-center transition-all ${bgClass}`}
               >
                 {day}
               </button>
@@ -331,8 +325,6 @@ export default function BookRoomModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
       <div className="relative w-full max-w-2xl bg-white rounded-3xl p-8 shadow-2xl overflow-visible">
-        {" "}
-        {/* overflow-visible for calendar popover */}
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-2 z-10"
@@ -340,7 +332,6 @@ export default function BookRoomModal({
           <X className="w-5 h-5" />
         </button>
         <div className="flex flex-col md:flex-row gap-8">
-          {/* LEFT SIDE: FORM */}
           <div className="flex-1 space-y-6">
             <div>
               <h2 className="text-2xl font-serif font-bold text-[#0A1A44] mb-1">
@@ -351,7 +342,7 @@ export default function BookRoomModal({
               </p>
             </div>
 
-            {/* EXPERIENCE SELECTOR */}
+            {/* EXPERIENCE TOGGLES */}
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
@@ -388,7 +379,7 @@ export default function BookRoomModal({
               </button>
             </div>
 
-            {/* DATE PICKER TRIGGER */}
+            {/* DATE PICKER */}
             <div className="relative" ref={calendarRef}>
               <label className="text-xs font-bold text-[#0A1A44] uppercase tracking-wider mb-1 block">
                 Date of Stay
@@ -423,10 +414,9 @@ export default function BookRoomModal({
                 </div>
               </div>
 
-              {/* AGODA-STYLE CALENDAR POPOVER */}
+              {/* CALENDAR POPOVER */}
               {showCalendar && (
                 <div className="absolute top-full left-0 mt-2 z-50 bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 flex flex-col md:flex-row gap-4 animate-in zoom-in-95 origin-top-left w-[300px] md:w-[550px]">
-                  {/* Calendar Controls */}
                   <div className="absolute top-4 left-4 right-4 flex justify-between pointer-events-none">
                     <button
                       type="button"
@@ -451,8 +441,6 @@ export default function BookRoomModal({
                       <ChevronRight className="w-5 h-5" />
                     </button>
                   </div>
-
-                  {/* Dual Month Grid */}
                   <div className="flex gap-4 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
                     {renderMonth(0)}
                     <div className="hidden md:block w-px bg-slate-100"></div>
@@ -462,30 +450,118 @@ export default function BookRoomModal({
               )}
             </div>
 
-            {/* GUESTS & SUMMARY */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-bold text-[#0A1A44] uppercase tracking-wider mb-1 block">
-                  Guests
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="20"
-                  value={guests}
-                  onChange={(e) => setGuests(parseInt(e.target.value))}
-                  className="w-full p-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-[#0A1A44] outline-none text-slate-900 font-medium"
-                />
-              </div>
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-center">
-                <div className="flex justify-between items-end">
-                  <span className="text-xs text-slate-500 font-medium">
-                    Total
-                  </span>
-                  <span className="text-lg font-bold text-[#0A1A44]">
-                    ₱ {totalPrice.toLocaleString()}
-                  </span>
+            {/* AGE-SPECIFIC GUEST SELECTORS */}
+            <div className="grid grid-cols-3 gap-2">
+              {/* Adults Input */}
+              <div className="flex flex-col items-center p-2 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold text-[#0A1A44] uppercase mb-1 flex items-center gap-1">
+                  <Users className="w-3 h-3" /> Adults
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAdults(Math.max(1, adults - 1))}
+                    className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <input
+                    type="number"
+                    min="1"
+                    value={adults}
+                    onChange={(e) =>
+                      setAdults(Math.max(1, parseInt(e.target.value) || 1))
+                    }
+                    className="w-8 text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setAdults(adults + 1)}
+                    className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
                 </div>
+                <span className="text-[9px] text-slate-400 mt-1">13+ Yrs</span>
+              </div>
+
+              {/* Children Input */}
+              <div className="flex flex-col items-center p-2 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold text-[#0A1A44] uppercase mb-1 flex items-center gap-1">
+                  <Baby className="w-3 h-3" /> Children
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setChildren(Math.max(0, children - 1))}
+                    className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <input
+                    type="number"
+                    min="0"
+                    value={children}
+                    onChange={(e) =>
+                      setChildren(Math.max(0, parseInt(e.target.value) || 0))
+                    }
+                    className="w-8 text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setChildren(children + 1)}
+                    className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+                <span className="text-[9px] text-slate-400 mt-1">3-12 Yrs</span>
+              </div>
+
+              {/* Infants Input (Free) */}
+              <div className="flex flex-col items-center p-2 rounded-xl border border-blue-100 bg-blue-50/50">
+                <span className="text-[10px] font-bold text-blue-700 uppercase mb-1 flex items-center gap-1">
+                  <Milk className="w-3 h-3" /> Infants
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setInfants(Math.max(0, infants - 1))}
+                    className="w-6 h-6 bg-white hover:bg-blue-100 rounded-full flex items-center justify-center text-blue-600 transition-colors shadow-sm"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <input
+                    type="number"
+                    min="0"
+                    value={infants}
+                    onChange={(e) =>
+                      setInfants(Math.max(0, parseInt(e.target.value) || 0))
+                    }
+                    className="w-8 text-center outline-none font-bold text-blue-800 no-spinner bg-transparent"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setInfants(infants + 1)}
+                    className="w-6 h-6 bg-white hover:bg-blue-100 rounded-full flex items-center justify-center text-blue-600 transition-colors shadow-sm"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+                <span className="text-[9px] font-bold text-blue-600 mt-1 uppercase">
+                  Free (0-2)
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col justify-center mt-2">
+              <div className="flex justify-between items-end">
+                <span className="text-xs text-slate-500 font-medium">
+                  Total Price
+                </span>
+                <span className="text-2xl font-bold text-[#0A1A44]">
+                  ₱ {totalPrice.toLocaleString()}
+                </span>
               </div>
             </div>
 
@@ -501,9 +577,7 @@ export default function BookRoomModal({
                 disabled={loading || totalPrice <= 0}
                 onClick={handleBooking}
               >
-                {loading
-                  ? "Checking..."
-                  : `Book for ₱${totalPrice.toLocaleString()}`}
+                {loading ? "Checking..." : "Confirm Booking"}
               </AuthButton>
             </div>
           </div>
