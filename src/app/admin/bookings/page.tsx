@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   CheckCircle,
   XCircle,
@@ -28,6 +28,7 @@ import {
   CalendarDays,
   BedDouble,
   CreditCard,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import AdminBookingModal from "@/components/admin/AdminBookingModal";
@@ -70,7 +71,7 @@ interface Booking {
   guests_count: number;
   adults: number;
   children: number;
-  infants: number; // ✅ Added
+  infants: number;
   check_in_date: string;
   check_out_date: string;
   total_amount: number;
@@ -130,7 +131,7 @@ const TABS = [
 ];
 const ITEMS_PER_PAGE = 8;
 
-export default function AdminDashboard() {
+export default function AdminBookingsPage() {
   const [activeTab, setActiveTab] = useState("All");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,22 +150,41 @@ export default function AdminDashboard() {
   } | null>(null);
   const [noShowConfirmId, setNoShowConfirmId] = useState<string | null>(null);
 
-  const fetchBookings = async () => {
+  // ✅ FETCH FUNCTION (Memoized for stability)
+  const fetchBookings = useCallback(async (isAutoRefresh = false) => {
     try {
+      // Add timestamp to prevent caching
       const res = await fetch(`/api/admin/bookings?t=${Date.now()}`);
       if (!res.ok) throw new Error("Failed");
       const data = await res.json();
-      setBookings(data);
+
+      setBookings((prev) => {
+        // Optional: Simple check to see if count changed to show a toast
+        if (isAutoRefresh && data.length > prev.length) {
+          toast.success("New booking received!");
+        }
+        return data;
+      });
     } catch {
       console.error("Failed to load bookings");
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchBookings();
   }, []);
+
+  // ✅ POLLING STRATEGY (The Fix)
+  useEffect(() => {
+    // 1. Initial Load
+    fetchBookings();
+
+    // 2. Set up Polling Interval (Every 5 seconds)
+    const intervalId = setInterval(() => {
+      fetchBookings(true); // Pass true to indicate auto-refresh
+    }, 5000);
+
+    // 3. Cleanup on unmount
+    return () => clearInterval(intervalId);
+  }, [fetchBookings]);
 
   const handleStatusUpdate = async (id: string, newStatus: string) => {
     if (newStatus === "no_show" && !noShowConfirmId) {
@@ -234,9 +254,21 @@ export default function AdminDashboard() {
       {/* Header */}
       <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end mb-10 gap-8">
         <div>
-          <h1 className="text-4xl font-serif font-black text-[#0A1A44] tracking-tight">
-            Reservations
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-4xl font-serif font-black text-[#0A1A44] tracking-tight">
+              Reservations
+            </h1>
+            {/* Live Indicator */}
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-green-100 rounded-full border border-green-200">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+              </span>
+              <span className="text-[10px] font-bold text-green-700 uppercase tracking-wider">
+                Live
+              </span>
+            </div>
+          </div>
           <p className="text-slate-500 font-medium mt-2">
             Admin Dashboard • Booking Management
           </p>
@@ -298,6 +330,13 @@ export default function AdminDashboard() {
           >
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">New Booking</span>
+          </button>
+          <button
+            onClick={() => fetchBookings()}
+            className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+            title="Refresh List"
+          >
+            <RefreshCw className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -381,10 +420,15 @@ export default function AdminDashboard() {
         }
         onSuccess={fetchBookings}
       />
+
+      {/* ✅ Fixed: Using 'prefill' correctly */}
       <TransactionModal
         isOpen={!!transactionPrefill}
         onClose={() => setTransactionPrefill(null)}
-        onSuccess={fetchBookings}
+        onSuccess={async () => {
+          await fetchBookings();
+          setTransactionPrefill(null);
+        }}
         prefill={transactionPrefill}
       />
 
