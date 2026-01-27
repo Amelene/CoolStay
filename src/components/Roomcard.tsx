@@ -1,7 +1,6 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/Button";
 
-// ✅ UPDATE: Detailed pricing structure
 export interface BookingData {
   id: string;
   name: string;
@@ -19,17 +18,28 @@ interface RoomProps {
   size: string;
   features: string[];
   price: number;
-  // ✅ UPDATE: Prop accepts full pricing details
   priceDay?: number;
   priceNight?: number;
   priceOvernight?: number;
   onBook: (room: BookingData) => void;
+  // ✅ NEW: Props for dynamic rating
+  rating?: number;
+  reviewCount?: number;
 }
 
-const Stars = ({ count = 5 }: { count?: number }) => (
-  <div className="flex gap-1 text-yellow-400">
-    {[...Array(count)].map((_, i) => (
-      <svg key={i} className="w-4 h-4 fill-current" viewBox="0 0 20 20">
+// ✅ Dynamic Star Component
+const Stars = ({ rating = 0 }: { rating?: number }) => (
+  <div className="flex gap-1">
+    {[...Array(5)].map((_, i) => (
+      <svg
+        key={i}
+        className={`w-4 h-4 ${
+          i < Math.round(rating)
+            ? "text-yellow-400 fill-current"
+            : "text-gray-300 fill-current" // Gray for empty stars
+        }`}
+        viewBox="0 0 20 20"
+      >
         <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
       </svg>
     ))}
@@ -48,6 +58,8 @@ export default function RoomCard({
   priceNight,
   priceOvernight,
   onBook,
+  rating = 0, // Default to 0
+  reviewCount = 0,
 }: RoomProps) {
   return (
     <div className="bg-[#A2D5F2]/20 border border-blue-200 rounded-3xl p-6 flex flex-col md:flex-row gap-6 shadow-sm hover:shadow-md transition-shadow">
@@ -80,14 +92,24 @@ export default function RoomCard({
                 Guest Ratings
               </p>
               <div className="flex items-center gap-2">
-                <Stars /> <span className="text-xs text-gray-500">(5)</span>
+                <Stars rating={rating} />
+                <span className="text-xs text-gray-500 font-medium">
+                  {reviewCount > 0
+                    ? `(${reviewCount} Reviews)`
+                    : "(No reviews yet)"}
+                </span>
               </div>
             </div>
+
+            {/* Optional: If Cleanliness/Comfort aren't real data points yet, 
+               you might want to hide them or make them mirror the main rating 
+               so they don't look fake. I've mirrored them here for consistency.
+            */}
             <div>
               <p className="text-xs font-semibold text-gray-700 mb-1">
                 Cleanliness
               </p>
-              <Stars />
+              <Stars rating={rating} />
             </div>
           </div>
 
@@ -95,7 +117,7 @@ export default function RoomCard({
             <p className="text-xs font-semibold text-gray-700 mb-1">
               Room Comfort
             </p>
-            <Stars />
+            <Stars rating={rating} />
           </div>
         </div>
 

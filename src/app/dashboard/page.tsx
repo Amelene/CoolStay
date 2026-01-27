@@ -5,13 +5,13 @@ import { AvailabilityCalendar } from "@/components/AvailabilityCalendar";
 import Link from "next/link";
 import HomeFooter from "@/components/HomeFooter";
 import { useEffect, useState, useCallback } from "react";
-import Image from "next/image";
 import { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/Button";
 import ReviewModal from "@/components/ReviewModal";
 import UserPaymentModal from "@/components/UserPaymentModal";
 import { toast } from "sonner";
+import Image from "next/image";
 import {
   Star,
   CreditCard,
@@ -23,6 +23,7 @@ import {
   Milk,
   Hash,
   MapPin,
+  AlertTriangle,
 } from "lucide-react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import BookingReceipt from "@/components/pdf/BookingReceipt";
@@ -50,7 +51,6 @@ interface Booking {
   total_amount: number;
   status: string;
   payment_status?: string;
-  // ✅ Updated Guest Fields
   guests_count: number;
   adults: number;
   children: number;
@@ -58,6 +58,64 @@ interface Booking {
   room_types: RoomType | null;
   payments?: Payment[];
 }
+
+// --- MODALS ---
+
+interface CancelModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  isLoading: boolean;
+}
+
+const CancelBookingModal = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  isLoading,
+}: CancelModalProps) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-sm w-full border border-slate-100 scale-100 animate-in zoom-in-95">
+        <div className="text-center">
+          <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500 border border-red-100">
+            <AlertTriangle className="w-7 h-7" />
+          </div>
+          <h3 className="text-xl font-bold text-[#0A1A44] mb-2 font-serif">
+            Cancel Reservation?
+          </h3>
+          <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+            Are you sure you want to cancel this trip? This action cannot be
+            undone and may be subject to cancellation fees.
+          </p>
+          <div className="flex gap-3">
+            <Button
+              variant="ghost"
+              onClick={onClose}
+              className="flex-1 text-slate-600 hover:bg-slate-50 rounded-xl"
+              disabled={isLoading}
+            >
+              Keep Trip
+            </Button>
+            <Button
+              onClick={onConfirm}
+              disabled={isLoading}
+              className="flex-1 bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-200 rounded-xl"
+            >
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                "Yes, Cancel"
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // --- COMPONENTS ---
 const WelcomeContent = ({ userName }: { userName: string }) => {
@@ -87,14 +145,14 @@ const WelcomeContent = ({ userName }: { userName: string }) => {
 
 const BookingCard = ({
   booking,
-  onCancel,
+  onCancelClick,
   onReview,
   onPay,
   hasReviewed,
   user,
 }: {
   booking: Booking;
-  onCancel: (id: string) => void;
+  onCancelClick: (id: string) => void;
   onReview: (booking: Booking) => void;
   onPay: (booking: Booking) => void;
   hasReviewed: boolean;
@@ -129,13 +187,18 @@ const BookingCard = ({
     (booking.status === "checked_out" || booking.status === "completed") &&
     !hasReviewed;
 
+  // Financial Calculations
   const validPayments =
-    booking.payments?.filter((p) => p.status === "completed") || [];
+    booking.payments?.filter(
+      (p) => p.status === "completed" || p.status === "paid",
+    ) || [];
   const totalPaid = validPayments.reduce((sum, p) => sum + p.amount, 0);
-  const isFullyPaid = totalPaid >= booking.total_amount;
+  const balance = Math.max(0, booking.total_amount - totalPaid);
+  const isFullyPaid = balance <= 0;
   const hasPendingPayment = booking.payments?.some(
     (p) => p.status === "pending",
   );
+
   const showPayNow =
     (booking.status === "pending" || booking.status === "confirmed") &&
     !isFullyPaid &&
@@ -252,18 +315,43 @@ const BookingCard = ({
             </div>
           </div>
 
-          {/* FOOTER ACTIONS */}
+          {/* FOOTER ACTIONS & FINANCIALS */}
           <div className="flex flex-wrap items-end justify-between mt-5 pt-4 border-t border-slate-100">
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase">
-                Total Price
-              </p>
-              <p className="text-xl font-black text-[#0A1A44]">
-                ₱{booking.total_amount?.toLocaleString()}
-              </p>
+            {/* UPGRADED: Financial Breakdown */}
+            <div className="flex items-center gap-6">
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase">
+                  Total
+                </p>
+                <p className="text-sm md:text-lg font-black text-[#0A1A44]">
+                  ₱{booking.total_amount?.toLocaleString()}
+                </p>
+              </div>
+              <div className="hidden sm:block h-8 w-px bg-slate-200"></div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase">
+                  Paid
+                </p>
+                <p className="text-sm md:text-lg font-bold text-green-600">
+                  ₱{totalPaid.toLocaleString()}
+                </p>
+              </div>
+              {!isFullyPaid && (
+                <>
+                  <div className="hidden sm:block h-8 w-px bg-slate-200"></div>
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">
+                      Balance
+                    </p>
+                    <p className="text-sm md:text-lg font-bold text-red-500">
+                      ₱{balance.toLocaleString()}
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
 
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center mt-4 md:mt-0">
               {showPayNow && (
                 <Button
                   size="sm"
@@ -308,7 +396,7 @@ const BookingCard = ({
 
               {canCancel && (
                 <button
-                  onClick={() => onCancel(booking.id)}
+                  onClick={() => onCancelClick(booking.id)}
                   className="text-xs text-red-500 hover:text-red-700 font-bold px-3 py-2 hover:bg-red-50 rounded-lg transition-colors"
                 >
                   Cancel
@@ -344,6 +432,11 @@ export default function DashboardPage() {
   const [reviewBooking, setReviewBooking] = useState<Booking | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [paymentBooking, setPaymentBooking] = useState<Booking | null>(null);
+
+  // Cancel Modal States
+  const [cancelBookingId, setCancelBookingId] = useState<string | null>(null);
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
 
   useEffect(() => {
     const getUser = async () => {
@@ -391,19 +484,30 @@ export default function DashboardPage() {
     fetchBookings();
   }, [fetchBookings]);
 
-  const handleCancel = async (bookingId: string) => {
-    if (!confirm("Are you sure you want to cancel this booking?")) return;
+  // Open the Cancel Modal instead of using window.confirm
+  const handleCancelClick = (bookingId: string) => {
+    setCancelBookingId(bookingId);
+    setIsCancelModalOpen(true);
+  };
+
+  // Logic to actually execute cancellation
+  const handleConfirmCancel = async () => {
+    if (!cancelBookingId) return;
+
+    setIsCancelling(true);
     const toastId = toast.loading("Cancelling booking...");
+
     try {
       const res = await fetch("/api/bookings/cancel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ booking_id: bookingId }),
+        body: JSON.stringify({ booking_id: cancelBookingId }),
       });
+
       if (res.ok) {
         toast.dismiss(toastId);
         toast.success("Booking cancelled successfully.");
-        fetchBookings();
+        await fetchBookings();
       } else {
         toast.dismiss(toastId);
         toast.error("Failed to cancel booking.");
@@ -412,6 +516,10 @@ export default function DashboardPage() {
       console.error(error);
       toast.dismiss(toastId);
       toast.error("An error occurred while cancelling.");
+    } finally {
+      setIsCancelling(false);
+      setIsCancelModalOpen(false);
+      setCancelBookingId(null);
     }
   };
 
@@ -424,6 +532,7 @@ export default function DashboardPage() {
     <main className="min-h-screen flex flex-col font-sans">
       <Navbar activePage="home" logoVariant="text" />
 
+      {/* --- MODALS --- */}
       {reviewBooking && user && reviewBooking.room_types && (
         <ReviewModal
           bookingId={reviewBooking.id}
@@ -446,6 +555,17 @@ export default function DashboardPage() {
           onSuccess={() => fetchBookings()}
         />
       )}
+
+      {/* New Cancel Modal */}
+      <CancelBookingModal
+        isOpen={isCancelModalOpen}
+        onClose={() => {
+          setIsCancelModalOpen(false);
+          setCancelBookingId(null);
+        }}
+        onConfirm={handleConfirmCancel}
+        isLoading={isCancelling}
+      />
 
       <div className="relative grow flex flex-col pt-20 min-h-screen">
         <div className="absolute inset-0 bg-gray-900 z-0 fixed-bg">
@@ -478,7 +598,7 @@ export default function DashboardPage() {
                       <BookingCard
                         key={booking.id}
                         booking={booking}
-                        onCancel={handleCancel}
+                        onCancelClick={handleCancelClick} // Use new handler
                         onReview={(b) => setReviewBooking(b)}
                         onPay={(b) => handlePayClick(b)}
                         hasReviewed={reviewedBookingIds.has(booking.id)}
