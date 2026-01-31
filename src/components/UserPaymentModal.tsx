@@ -162,7 +162,7 @@ export default function UserPaymentModal({
                       Strict No Refund Policy
                     </h4>
                     <p className="text-xs text-red-600 mt-1 leading-relaxed">
-                      The 20% downpayment is strictly <b>non-refundable</b> and
+                      The 20% downpayment is <b>no refund policy</b> and
                       non-transferable. Cancellations made after payment will
                       result in forfeiture of this amount.
                     </p>

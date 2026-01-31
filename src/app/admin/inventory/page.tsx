@@ -10,11 +10,22 @@ import {
   ArrowUpDown,
   History,
   Package,
+  FileText,
+  Download,
+  Calendar,
 } from "lucide-react";
 import AddSupplyModal from "@/components/admin/inventory/AddSupplyModal";
 import AdjustStockModal from "@/components/admin/inventory/AdjustStockModal";
 import InventoryLogs from "@/components/admin/inventory/InventoryLogs";
+import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
+import { pdf } from "@react-pdf/renderer";
+import { saveAs } from "file-saver";
+import CurrentStockReport, {
+  CurrentStockReportData,
+} from "@/components/pdf/CurrentStockReport";
 
+// --- TYPES ---
 type SupplyItem = {
   id: string;
   item_name: string;
@@ -25,10 +36,23 @@ type SupplyItem = {
   last_restocked: string;
 };
 
+type ReportItem = {
+  id: string;
+  generated_at: string;
+  report_content: string; // JSON string
+  created_by?: string; // Optional if you track who made it
+};
+
 export default function InventoryPage() {
-  const [activeTab, setActiveTab] = useState<"stock" | "logs">("stock");
+  // ✅ Added "reports" tab
+  const [activeTab, setActiveTab] = useState<"stock" | "logs" | "reports">(
+    "stock",
+  );
   const [items, setItems] = useState<SupplyItem[]>([]);
+  const [reports, setReports] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
   // Modal States
@@ -41,15 +65,72 @@ export default function InventoryPage() {
       const data = await res.json();
       if (res.ok) setItems(data);
     } catch (error) {
-      console.error("Failed to load inventory");
+      console.error("Failed to load inventory", error);
     } finally {
       setLoading(false);
     }
   };
 
+  const fetchReports = async () => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("analytics_reports")
+      .select("id, generated_at, report_content")
+      .eq("report_type", "Inventory Stock Snapshot")
+      .order("generated_at", { ascending: false });
+
+    if (data) setReports(data);
+  };
+
   useEffect(() => {
     fetchInventory();
+    fetchReports();
   }, []);
+
+  const handleGenerateReport = async () => {
+    setIsGenerating(true);
+    const toastId = toast.loading("Taking inventory snapshot...");
+
+    try {
+      const res = await fetch("/api/admin/inventory/report", {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error("Failed");
+
+      toast.success("Snapshot saved to Reports tab!", { id: toastId });
+      await fetchReports();
+      setActiveTab("reports"); // ✅ Auto-switch to reports tab
+    } catch (error) {
+      // ✅ Fixed: error variable used
+      console.error(error);
+      toast.error("Failed to generate report", { id: toastId });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleDownloadReport = async (
+    content: string,
+    id: string,
+    date: string,
+  ) => {
+    setDownloadingId(id);
+    try {
+      const parsedData: CurrentStockReportData = JSON.parse(content);
+      const blob = await pdf(<CurrentStockReport data={parsedData} />).toBlob();
+      saveAs(
+        blob,
+        `Stock_Report_${new Date(date).toISOString().slice(0, 10)}.pdf`,
+      );
+      toast.success("Download started");
+    } catch (error) {
+      // ✅ Fixed: error variable used
+      console.error(error);
+      toast.error("Error downloading file");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   // Filter Logic
   const filteredItems = items.filter(
@@ -58,11 +139,9 @@ export default function InventoryPage() {
       item.category.toLowerCase().includes(search.toLowerCase()),
   );
 
-  // Stats
   const lowStockCount = items.filter(
     (i) => i.current_stock <= i.minimum_stock,
   ).length;
-  const totalItems = items.length;
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-[#F0F8FF] p-8 -m-6 font-sans text-slate-800">
@@ -76,79 +155,91 @@ export default function InventoryPage() {
             Track daily supplies, toiletries, and cleaning kits.
           </p>
         </div>
-        <button
-          onClick={() => setIsAddOpen(true)}
-          className="bg-[#0A1A44] hover:bg-blue-900 text-white px-5 py-3 rounded-full font-bold text-sm shadow-md flex items-center gap-2 active:scale-95 transition-all"
-        >
-          <Plus className="w-4 h-4" /> Add New Item
-        </button>
+        <div className="flex gap-2">
+          {/* Primary Action is always Add Item */}
+          <button
+            onClick={() => setIsAddOpen(true)}
+            className="bg-[#0A1A44] hover:bg-blue-900 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md flex items-center gap-2 active:scale-95 transition-all"
+          >
+            <Plus className="w-4 h-4" /> Add New Item
+          </button>
+        </div>
       </div>
 
-      {/* KPI Cards (Only show on Stock Tab) */}
-      {activeTab === "stock" && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
-            <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-              <Box className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase">
-                Total Items
-              </p>
-              <p className="text-2xl font-bold text-slate-800">{totalItems}</p>
-            </div>
+      {/* KPI Cards (Always visible for context, or strictly on Stock tab? Keeping generic context is good) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+            <Box className="w-6 h-6" />
           </div>
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
-            <div
-              className={`p-3 rounded-xl ${lowStockCount > 0 ? "bg-red-50 text-red-600" : "bg-green-50 text-green-600"}`}
-            >
-              <AlertTriangle className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase">
-                Low Stock Alerts
-              </p>
-              <p
-                className={`text-2xl font-bold ${lowStockCount > 0 ? "text-red-600" : "text-slate-800"}`}
-              >
-                {lowStockCount}
-              </p>
-            </div>
+          <div>
+            <p className="text-xs font-bold text-slate-400 uppercase">
+              Total Items
+            </p>
+            <p className="text-2xl font-bold text-slate-800">{items.length}</p>
           </div>
         </div>
-      )}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+          <div
+            className={`p-3 rounded-xl ${lowStockCount > 0 ? "bg-red-50 text-red-600" : "bg-green-50 text-green-600"}`}
+          >
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-400 uppercase">
+              Low Stock Alerts
+            </p>
+            <p
+              className={`text-2xl font-bold ${lowStockCount > 0 ? "text-red-600" : "text-slate-800"}`}
+            >
+              {lowStockCount}
+            </p>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+          <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
+            <FileText className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-400 uppercase">
+              Saved Reports
+            </p>
+            <p className="text-2xl font-bold text-slate-800">
+              {reports.length}
+            </p>
+          </div>
+        </div>
+      </div>
 
-      {/* Tabs */}
-      <div className="flex gap-4 mb-6 border-b border-slate-200">
+      {/* Navigation Tabs */}
+      <div className="flex gap-1 mb-6 bg-white p-1 rounded-2xl border border-slate-200 w-fit shadow-sm">
         <button
           onClick={() => setActiveTab("stock")}
-          className={`pb-3 px-2 text-sm font-bold flex items-center gap-2 transition-all border-b-2 ${
-            activeTab === "stock"
-              ? "border-[#0A1A44] text-[#0A1A44]"
-              : "border-transparent text-slate-400 hover:text-slate-600"
-          }`}
+          className={`px-6 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all ${activeTab === "stock" ? "bg-[#0A1A44] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
         >
           <Package className="w-4 h-4" /> Current Stock
         </button>
         <button
           onClick={() => setActiveTab("logs")}
-          className={`pb-3 px-2 text-sm font-bold flex items-center gap-2 transition-all border-b-2 ${
-            activeTab === "logs"
-              ? "border-[#0A1A44] text-[#0A1A44]"
-              : "border-transparent text-slate-400 hover:text-slate-600"
-          }`}
+          className={`px-6 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all ${activeTab === "logs" ? "bg-[#0A1A44] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
         >
           <History className="w-4 h-4" /> Usage History
         </button>
+        <button
+          onClick={() => setActiveTab("reports")}
+          className={`px-6 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all ${activeTab === "reports" ? "bg-[#0A1A44] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
+        >
+          <FileText className="w-4 h-4" /> Saved Reports
+        </button>
       </div>
 
-      {/* Content */}
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden min-h-[400px]">
-        {activeTab === "stock" ? (
+      {/* --- CONTENT AREA --- */}
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden min-h-[500px]">
+        {/* TAB 1: CURRENT STOCK */}
+        {activeTab === "stock" && (
           <>
-            {/* Toolbar */}
-            <div className="p-4 border-b border-slate-100 flex gap-4">
-              <div className="relative flex-1 max-w-sm">
+            <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row gap-4 justify-between items-center">
+              <div className="relative flex-1 w-full sm:max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                 <input
                   placeholder="Search supplies..."
@@ -157,9 +248,22 @@ export default function InventoryPage() {
                   className="w-full pl-10 p-2.5 bg-slate-50 border-none rounded-xl text-sm font-medium focus:ring-2 ring-blue-100 outline-none"
                 />
               </div>
+
+              {/* SNAPSHOT BUTTON */}
+              <button
+                onClick={handleGenerateReport}
+                disabled={isGenerating}
+                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              >
+                {isGenerating ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FileText className="w-4 h-4" />
+                )}
+                Save Snapshot
+              </button>
             </div>
 
-            {/* Table */}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase font-bold text-slate-500">
@@ -175,19 +279,19 @@ export default function InventoryPage() {
                     <tr>
                       <td
                         colSpan={4}
-                        className="p-8 text-center text-slate-400"
+                        className="p-12 text-center text-slate-400"
                       >
-                        <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />{" "}
-                        Loading...
+                        <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />{" "}
+                        Loading inventory...
                       </td>
                     </tr>
                   ) : filteredItems.length === 0 ? (
                     <tr>
                       <td
                         colSpan={4}
-                        className="p-8 text-center text-slate-400"
+                        className="p-12 text-center text-slate-400"
                       >
-                        No items found.
+                        No items found matching your search.
                       </td>
                     </tr>
                   ) : (
@@ -244,10 +348,134 @@ export default function InventoryPage() {
               </table>
             </div>
           </>
-        ) : (
-          /* Logs View */
+        )}
+
+        {/* TAB 2: USAGE LOGS */}
+        {activeTab === "logs" && (
           <div className="p-6">
             <InventoryLogs />
+          </div>
+        )}
+
+        {/* TAB 3: SAVED REPORTS (Redesigned) */}
+        {activeTab === "reports" && (
+          <div className="p-6">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-[#0A1A44]">
+                  Saved Snapshots
+                </h3>
+                <p className="text-sm text-slate-500">
+                  Historical records of inventory levels.
+                </p>
+              </div>
+            </div>
+
+            {reports.length === 0 ? (
+              <div className="text-center py-20 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <p className="text-slate-500 font-medium">
+                  No reports saved yet.
+                </p>
+                <button
+                  onClick={() => setActiveTab("stock")}
+                  className="text-blue-600 text-sm font-bold hover:underline mt-2"
+                >
+                  Go to Stock to create one
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {reports.map((report) => {
+                  // PARSE JSON content for preview stats
+                  let stats = { totalItems: 0, lowStockCount: 0 };
+                  try {
+                    const parsed = JSON.parse(report.report_content);
+                    stats = parsed.summary || stats;
+                  } catch (e) {
+                    console.error("JSON Parse error", e);
+                  }
+
+                  return (
+                    <div
+                      key={report.id}
+                      className="bg-white border border-slate-200 rounded-2xl p-5 hover:shadow-md transition-all group flex flex-col justify-between h-full"
+                    >
+                      <div>
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
+                            <FileText className="w-5 h-5" />
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100">
+                            SNAPSHOT
+                          </span>
+                        </div>
+
+                        <h4 className="font-bold text-[#0A1A44] text-lg mb-1">
+                          {new Date(report.generated_at).toLocaleDateString(
+                            "en-US",
+                            { month: "short", day: "numeric", year: "numeric" },
+                          )}
+                        </h4>
+                        <p className="text-xs text-slate-400 mb-4 flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />{" "}
+                          {new Date(report.generated_at).toLocaleTimeString(
+                            [],
+                            { hour: "2-digit", minute: "2-digit" },
+                          )}
+                        </p>
+
+                        <div className="flex gap-4 mb-4 text-sm">
+                          <div>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase">
+                              Items
+                            </p>
+                            <p className="font-bold text-slate-700">
+                              {stats.totalItems}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase">
+                              Low Stock
+                            </p>
+                            <div className="flex items-center gap-1">
+                              <p
+                                className={`font-bold ${stats.lowStockCount > 0 ? "text-red-600" : "text-green-600"}`}
+                              >
+                                {stats.lowStockCount}
+                              </p>
+                              {stats.lowStockCount > 0 && (
+                                <AlertTriangle className="w-3 h-3 text-red-500" />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() =>
+                          handleDownloadReport(
+                            report.report_content,
+                            report.id,
+                            report.generated_at,
+                          )
+                        }
+                        disabled={downloadingId === report.id}
+                        className="w-full bg-slate-50 hover:bg-[#0A1A44] hover:text-white text-slate-600 border border-slate-200 hover:border-[#0A1A44] py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all"
+                      >
+                        {downloadingId === report.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Download className="w-4 h-4" /> Download PDF
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

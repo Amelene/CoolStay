@@ -11,6 +11,7 @@ import {
   Download,
   FileText,
   RefreshCcw,
+  Loader2,
 } from "lucide-react";
 import {
   AreaChart,
@@ -24,8 +25,13 @@ import {
   Bar,
   Cell,
 } from "recharts";
+import { toast } from "sonner";
+import { pdf } from "@react-pdf/renderer";
+import { saveAs } from "file-saver";
+// You must create this component based on the previous plan
+import AnalyticsReport, { ReportData } from "@/components/pdf/AnalyticsReport";
 
-// Types
+// --- TYPES ---
 type AnalyticsData = {
   kpi: {
     totalRevenue: number;
@@ -38,8 +44,10 @@ type AnalyticsData = {
   recentReports: {
     id: string;
     report_type: string;
+    time_range: string;
     generated_at: string;
     success: boolean;
+    report_content: string; // ✅ Critical: Contains the JSON snapshot
   }[];
 };
 
@@ -87,41 +95,102 @@ const StatCard = ({
 export default function ReportsAnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   // Independent Range States
   const [revenueRange, setRevenueRange] = useState("year");
   const [roomsRange, setRoomsRange] = useState("year");
 
-  // Independent Month Selection States (Default to current month YYYY-MM)
+  // Independent Month Selection States
   const currentMonthStr = new Date().toISOString().slice(0, 7);
   const [revenueMonth, setRevenueMonth] = useState(currentMonthStr);
   const [roomsMonth, setRoomsMonth] = useState(currentMonthStr);
 
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      const params = new URLSearchParams({
+        revenue_range: revenueRange,
+        revenue_date: revenueMonth,
+        rooms_range: roomsRange,
+        rooms_date: roomsMonth,
+      });
+
+      const res = await fetch(`/api/admin/analytics?${params.toString()}`);
+      if (!res.ok) throw new Error("Failed");
+      const json = await res.json();
+      setData(json);
+    } catch (error) {
+      console.error("Error fetching analytics:", error);
+      toast.error("Failed to load analytics data");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-
-      try {
-        // Construct query parameters
-        const params = new URLSearchParams({
-          revenue_range: revenueRange,
-          revenue_date: revenueMonth,
-          rooms_range: roomsRange,
-          rooms_date: roomsMonth,
-        });
-
-        const res = await fetch(`/api/admin/analytics?${params.toString()}`);
-        if (!res.ok) throw new Error("Failed");
-        const json = await res.json();
-        setData(json);
-      } catch (error) {
-        console.error("Error fetching analytics:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revenueRange, roomsRange, revenueMonth, roomsMonth]);
+
+  // --- ACTIONS ---
+
+  const handleGenerateReport = async () => {
+    if (!data) return;
+    setIsGenerating(true);
+    const toastId = toast.loading("Generating report...");
+
+    try {
+      // Create a readable label for the report
+      const label = `${revenueRange.toUpperCase()} VIEW (${revenueRange === "month" ? revenueMonth : new Date().getFullYear()})`;
+
+      const res = await fetch("/api/admin/reports/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kpi: data.kpi,
+          revenueChart: data.revenueChart,
+          roomPopularity: data.roomPopularity,
+          rangeLabel: label,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to save report");
+
+      toast.success("Report generated and saved!", { id: toastId });
+      // Refresh list to show the new report
+      fetchData();
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to generate report", { id: toastId });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleDownloadOldReport = async (reportContent: string, id: string) => {
+    setDownloadingId(id);
+    const toastId = toast.loading("Preparing download...");
+    try {
+      // 1. Parse the saved JSON snapshot
+      const parsedData: ReportData = JSON.parse(reportContent);
+
+      // 2. Generate PDF Blob
+      const blob = await pdf(<AnalyticsReport data={parsedData} />).toBlob();
+
+      // 3. Trigger Download
+      saveAs(blob, `CoolStay_Report_${id.slice(0, 8)}.pdf`);
+      toast.dismiss(toastId);
+    } catch (e) {
+      console.error(e);
+      toast.error("Could not download report. Data corrupted.", {
+        id: toastId,
+      });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   if (!data && isLoading)
     return (
@@ -150,6 +219,20 @@ export default function ReportsAnalyticsPage() {
             Real-time performance metrics.
           </p>
         </div>
+
+        {/* ✅ GENERATE BUTTON */}
+        <button
+          onClick={handleGenerateReport}
+          disabled={isGenerating || isLoading}
+          className="bg-[#0A1A44] hover:bg-blue-900 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-900/10 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isGenerating ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <FileText className="w-5 h-5" />
+          )}
+          GENERATE PDF REPORT
+        </button>
       </div>
 
       {/* 1. KPI Grid */}
@@ -200,7 +283,6 @@ export default function ReportsAnalyticsPage() {
             </h3>
 
             <div className="flex flex-wrap gap-2">
-              {/* Revenue Month Picker */}
               {revenueRange === "month" && (
                 <input
                   type="month"
@@ -209,8 +291,6 @@ export default function ReportsAnalyticsPage() {
                   className="bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold px-2 py-2 text-slate-700 focus:ring-2 ring-blue-100 outline-none"
                 />
               )}
-
-              {/* Range Selector */}
               <select
                 value={revenueRange}
                 onChange={(e) => setRevenueRange(e.target.value)}
@@ -286,14 +366,12 @@ export default function ReportsAnalyticsPage() {
 
           <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500 rounded-full blur-3xl opacity-20 -mr-10 -mt-10"></div>
 
-          {/* ✅ FIXED HEADER LAYOUT */}
           <div className="flex flex-col gap-3 mb-6 relative z-10">
             <div className="flex justify-between items-center">
               <h3 className="text-xl font-bold">Popular Rooms</h3>
             </div>
 
             <div className="flex flex-wrap gap-2 w-full">
-              {/* Month Picker */}
               {roomsRange === "month" && (
                 <input
                   type="month"
@@ -302,8 +380,6 @@ export default function ReportsAnalyticsPage() {
                   className="flex-1 min-w-[120px] bg-white/10 border border-white/20 rounded-lg text-xs font-bold px-2 py-2 text-white focus:ring-2 ring-white/30 outline-none scheme-dark"
                 />
               )}
-
-              {/* Range Selector */}
               <select
                 value={roomsRange}
                 onChange={(e) => setRoomsRange(e.target.value)}
@@ -368,7 +444,10 @@ export default function ReportsAnalyticsPage() {
           <h3 className="text-xl font-bold text-[#0A1A44]">
             Recent Generated Reports
           </h3>
-          <button className="text-sm font-bold text-blue-600 hover:text-blue-800 flex items-center gap-2">
+          <button
+            onClick={fetchData}
+            className="text-sm font-bold text-blue-600 hover:text-blue-800 flex items-center gap-2"
+          >
             <RefreshCcw className="w-4 h-4" /> Refresh List
           </button>
         </div>
@@ -379,6 +458,7 @@ export default function ReportsAnalyticsPage() {
               <tr className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100">
                 <th className="pb-4 pl-4">Report ID</th>
                 <th className="pb-4">Report Type</th>
+                <th className="pb-4">Period</th>
                 <th className="pb-4">Generated Date</th>
                 <th className="pb-4">Status</th>
                 <th className="pb-4 text-right pr-4">Action</th>
@@ -387,7 +467,7 @@ export default function ReportsAnalyticsPage() {
             <tbody className="divide-y divide-slate-50">
               {data.recentReports.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-4 text-center text-slate-500">
+                  <td colSpan={6} className="py-4 text-center text-slate-500">
                     No reports generated yet.
                   </td>
                 </tr>
@@ -406,6 +486,9 @@ export default function ReportsAnalyticsPage() {
                         {report.report_type}
                       </div>
                     </td>
+                    <td className="py-4 text-xs font-bold text-slate-500 uppercase">
+                      {report.time_range || "N/A"}
+                    </td>
                     <td className="py-4 text-sm text-slate-600">
                       {new Date(report.generated_at).toLocaleDateString()}
                     </td>
@@ -422,8 +505,23 @@ export default function ReportsAnalyticsPage() {
                       </span>
                     </td>
                     <td className="py-4 text-right pr-4">
-                      <button className="text-slate-400 hover:text-[#0A1A44] transition-colors">
-                        <Download className="w-5 h-5" />
+                      {/* ✅ DOWNLOAD BUTTON */}
+                      <button
+                        onClick={() =>
+                          handleDownloadOldReport(
+                            report.report_content,
+                            report.id,
+                          )
+                        }
+                        disabled={downloadingId === report.id}
+                        className="text-slate-400 hover:text-[#0A1A44] transition-colors disabled:opacity-50"
+                        title="Download Archived PDF"
+                      >
+                        {downloadingId === report.id ? (
+                          <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                        ) : (
+                          <Download className="w-5 h-5" />
+                        )}
                       </button>
                     </td>
                   </tr>
