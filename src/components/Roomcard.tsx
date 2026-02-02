@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/Button";
+import { Users } from "lucide-react"; // Import Icon
 
 export interface BookingData {
   id: string;
@@ -22,12 +23,13 @@ interface RoomProps {
   priceNight?: number;
   priceOvernight?: number;
   onBook: (room: BookingData) => void;
-  // ✅ NEW: Props for dynamic rating
+  // ✅ New Props for Capacity & Ratings
+  capacity: number;
   rating?: number;
   reviewCount?: number;
 }
 
-// ✅ Dynamic Star Component
+// Dynamic Stars Component
 const Stars = ({ rating = 0 }: { rating?: number }) => (
   <div className="flex gap-1">
     {[...Array(5)].map((_, i) => (
@@ -36,7 +38,7 @@ const Stars = ({ rating = 0 }: { rating?: number }) => (
         className={`w-4 h-4 ${
           i < Math.round(rating)
             ? "text-yellow-400 fill-current"
-            : "text-gray-300 fill-current" // Gray for empty stars
+            : "text-gray-300 fill-current"
         }`}
         viewBox="0 0 20 20"
       >
@@ -58,11 +60,12 @@ export default function RoomCard({
   priceNight,
   priceOvernight,
   onBook,
-  rating = 0, // Default to 0
+  capacity,
+  rating = 0,
   reviewCount = 0,
 }: RoomProps) {
   return (
-    <div className="bg-[#A2D5F2]/20 border border-blue-200 rounded-3xl p-6 flex flex-col md:flex-row gap-6 shadow-sm hover:shadow-md transition-shadow">
+    <div className="bg-[#A2D5F2]/20 border border-blue-200 rounded-3xl p-6 flex flex-col md:flex-row gap-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
       {/* Left: Image */}
       <div className="w-full md:w-1/3 relative h-64 md:h-auto rounded-2xl overflow-hidden shrink-0">
         <Image src={imageSrc} alt={title} fill className="object-cover" />
@@ -74,9 +77,14 @@ export default function RoomCard({
           <h3 className="text-2xl font-bold text-[#0A1A44] font-serif">
             {title}
           </h3>
-          <div className="text-right">
-            <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full block w-fit ml-auto">
+          <div className="text-right space-y-1">
+            <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full block w-fit ml-auto">
               Starts at ₱{price.toLocaleString()}
+            </span>
+            {/* ✅ NEW: Capacity Badge */}
+            <span className="flex items-center justify-end gap-1.5 text-xs font-bold text-slate-500">
+              <Users className="w-3.5 h-3.5" />
+              Good for up to {capacity} Pax
             </span>
           </div>
         </div>
@@ -101,10 +109,7 @@ export default function RoomCard({
               </div>
             </div>
 
-            {/* Optional: If Cleanliness/Comfort aren't real data points yet, 
-               you might want to hide them or make them mirror the main rating 
-               so they don't look fake. I've mirrored them here for consistency.
-            */}
+            {/* Mirrored Rating for Visual Balance */}
             <div>
               <p className="text-xs font-semibold text-gray-700 mb-1">
                 Cleanliness

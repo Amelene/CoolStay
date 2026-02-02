@@ -34,12 +34,13 @@ interface RoomType {
   price_day?: number;
   price_night?: number;
   price_overnight?: number;
-  // ✅ New fields for calculated ratings
+  // ✅ NEW FIELDS
+  capacity: number;
   avg_rating?: number;
   review_count?: number;
 }
 
-// ... (KEEP HELPERS: getDaysInMonth, getFirstDayOfMonth unchanged) ...
+// --- HELPERS ---
 const getDaysInMonth = (year: number, month: number) =>
   new Date(year, month + 1, 0).getDate();
 const getFirstDayOfMonth = (year: number, month: number) =>
@@ -53,18 +54,22 @@ function AccommodationContent() {
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
 
-  // ... (KEEP STATES: Search, Guests, Calendar, Refs unchanged) ...
+  // Search State
   const [checkInDate, setCheckInDate] = useState("");
   const [checkOutDate, setCheckOutDate] = useState("");
+
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
   const [infants, setInfants] = useState(0);
+
   const [showGuestMenu, setShowGuestMenu] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
   const [hoverDate, setHoverDate] = useState<string | null>(null);
+
   const calendarRef = useRef<HTMLDivElement>(null);
   const guestMenuRef = useRef<HTMLDivElement>(null);
+
   const [selectedRoom, setSelectedRoom] = useState<BookingData | null>(null);
 
   useEffect(() => {
@@ -73,7 +78,6 @@ function AccommodationContent() {
       try {
         await fetchRooms();
 
-        // ... (KEEP URL PARAMS LOGIC unchanged) ...
         const returnCheckIn = searchParams.get("check_in");
         const returnCheckOut = searchParams.get("check_out");
         const returnRoomId = searchParams.get("room_id");
@@ -85,13 +89,14 @@ function AccommodationContent() {
         if (returnCheckOut) setCheckOutDate(returnCheckOut);
 
         if (returnRoomId) {
-          // (Logic to open modal if URL has room_id - kept same)
           const supabase = createClient();
           const { data } = await supabase
             .from("room_types")
             .select("*")
+            .eq("is_active", true)
             .eq("id", returnRoomId)
             .single();
+
           if (data) {
             setSelectedRoom({
               id: data.id,
@@ -115,7 +120,6 @@ function AccommodationContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ... (KEEP useEffect for click outside unchanged) ...
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -135,12 +139,9 @@ function AccommodationContent() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // ✅ UPDATED FETCH ROOMS with Ratings
   const fetchRooms = async () => {
     const supabase = createClient();
-
-    // Fetch rooms AND their reviews
-    // Note: This relies on the SQL fix we applied (reviews.room_id -> room_types.id)
+    // ✅ Updated to fetch reviews for rating calc
     const { data, error } = await supabase
       .from("room_types")
       .select("*, reviews(rating)")
@@ -149,9 +150,8 @@ function AccommodationContent() {
     if (error) {
       toast.error("Failed to load rooms");
     } else {
-      // Calculate averages on the fly
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const roomsWithRatings = (data || []).map((room: any) => {
+      const roomsWithData = (data || []).map((room: any) => {
         const ratings =
           room.reviews?.map((r: { rating: number }) => r.rating) || [];
         const count = ratings.length;
@@ -166,17 +166,11 @@ function AccommodationContent() {
           review_count: count,
         };
       });
-
-      setRooms(roomsWithRatings);
+      setRooms(roomsWithData);
     }
   };
 
-  // ... (KEEP handleDateClick, renderMonth, handleSearch unchanged) ...
-  // (Paste the existing handlers here to keep file complete, or I can provide just the updated parts if you prefer.
-  //  Assuming you want the full working component context, I will include the Render Return below)
-
   const handleDateClick = (dateStr: string) => {
-    // ... same as before
     if (
       !checkInDate ||
       (checkInDate && checkOutDate && checkInDate !== checkOutDate)
@@ -184,8 +178,9 @@ function AccommodationContent() {
       setCheckInDate(dateStr);
       setCheckOutDate("");
     } else if (checkInDate && !checkOutDate) {
-      if (dateStr < checkInDate) setCheckInDate(dateStr);
-      else {
+      if (dateStr < checkInDate) {
+        setCheckInDate(dateStr);
+      } else {
         setCheckOutDate(dateStr);
         setShowCalendar(false);
       }
@@ -196,7 +191,6 @@ function AccommodationContent() {
   };
 
   const renderMonth = (offset: number) => {
-    // ... same as before (copy logic from your file)
     const targetDate = new Date(
       viewDate.getFullYear(),
       viewDate.getMonth() + offset,
@@ -204,10 +198,12 @@ function AccommodationContent() {
     );
     const year = targetDate.getFullYear();
     const month = targetDate.getMonth();
+
     const daysInMonth = getDaysInMonth(year, month);
     const firstDay = getFirstDayOfMonth(year, month);
     const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
     const emptySlots = Array.from({ length: firstDay }, (_, i) => i);
+
     const monthNames = [
       "January",
       "February",
@@ -241,6 +237,7 @@ function AccommodationContent() {
             const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
             const todayStr = new Date().toISOString().split("T")[0];
             const isPast = dateStr < todayStr;
+
             const isSelected =
               dateStr === checkInDate || dateStr === checkOutDate;
             const isInRange =
@@ -254,6 +251,7 @@ function AccommodationContent() {
               hoverDate &&
               dateStr > checkInDate &&
               dateStr <= hoverDate;
+
             let bgClass = "hover:bg-blue-50 text-gray-700";
             if (isPast) bgClass = "text-gray-300 cursor-not-allowed";
             else if (isSelected) bgClass = "bg-[#0A1A44] text-white shadow-md";
@@ -269,7 +267,10 @@ function AccommodationContent() {
                 disabled={isPast}
                 onClick={() => handleDateClick(dateStr)}
                 onMouseEnter={() => setHoverDate(dateStr)}
-                className={`h-8 w-8 text-xs rounded-full flex items-center justify-center transition-all ${bgClass}`}
+                className={`
+                  h-8 w-8 text-xs rounded-full flex items-center justify-center transition-all
+                  ${bgClass}
+                `}
               >
                 {day}
               </button>
@@ -281,11 +282,11 @@ function AccommodationContent() {
   };
 
   const handleSearch = async () => {
-    // ... same search logic as before
     if (!checkInDate || !checkOutDate) {
       toast.error("Please select both check-in and check-out dates");
       return;
     }
+
     if (new Date(checkInDate) > new Date(checkOutDate)) {
       toast.error("Check-out date cannot be before check-in date");
       return;
@@ -293,13 +294,13 @@ function AccommodationContent() {
 
     setSearching(true);
     const supabase = createClient();
+
     const totalGuests = adults + children;
 
     try {
-      // Fetch rooms + reviews again for search results
       const { data: allRooms, error: roomsError } = await supabase
         .from("room_types")
-        .select("*, reviews(rating)")
+        .select("*, reviews(rating)") // Include reviews for ratings
         .eq("is_active", true)
         .gte("capacity", totalGuests);
 
@@ -323,12 +324,12 @@ function AccommodationContent() {
       if (bookingsError) throw bookingsError;
 
       const bookingCounts: Record<string, number> = {};
+
       busyBookings?.forEach((booking) => {
         bookingCounts[booking.room_type_id] =
           (bookingCounts[booking.room_type_id] || 0) + 1;
       });
 
-      // Filter and Calculate Ratings
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const availableRooms = (allRooms as any[])
         .filter((room) => {
@@ -347,9 +348,12 @@ function AccommodationContent() {
         });
 
       setRooms(availableRooms);
-      if (availableRooms.length === 0)
+
+      if (availableRooms.length === 0) {
         toast.info("No rooms available for this group size/date.");
-      else toast.success(`Found ${availableRooms.length} available rooms!`);
+      } else {
+        toast.success(`Found ${availableRooms.length} available rooms!`);
+      }
     } catch (err) {
       console.error(err);
       toast.error("Something went wrong while searching.");
@@ -383,6 +387,7 @@ function AccommodationContent() {
       )}
 
       <div className="pt-28 pb-20 px-4 sm:px-8 max-w-[1440px] mx-auto">
+        {/* HEADER SECTION (Same as before) */}
         <div className="relative bg-[#0077B6] rounded-3xl p-6 md:p-8 shadow-xl text-white mb-12 mt-8 animate-in slide-in-from-top-10 duration-700">
           <div className="absolute -top-12 left-1/2 -translate-x-1/2 h-24 w-24 bg-white rounded-full border-4 border-white shadow-md flex items-center justify-center overflow-hidden z-10">
             <Image
@@ -403,6 +408,7 @@ function AccommodationContent() {
               <div className="flex justify-between text-xs font-semibold uppercase tracking-wider opacity-90">
                 <span>Check In & Out</span>
               </div>
+
               <div
                 onClick={() => setShowCalendar(!showCalendar)}
                 className={`bg-white text-gray-700 rounded-xl flex items-center h-14 px-2 shadow-inner overflow-hidden cursor-pointer transition-all ${showCalendar ? "ring-2 ring-[#0A1A44]" : "hover:ring-2 ring-[#0A1A44]/20"}`}
@@ -439,6 +445,7 @@ function AccommodationContent() {
                 </div>
                 <CalendarIcon className="w-5 h-5 text-gray-400 mr-2" />
               </div>
+
               {showCalendar && (
                 <div className="absolute top-full left-0 mt-4 z-50 bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 flex flex-col md:flex-row gap-4 animate-in zoom-in-95 origin-top-left w-full md:w-auto">
                   <div className="absolute top-4 left-4 right-4 flex justify-between pointer-events-none">
@@ -482,6 +489,7 @@ function AccommodationContent() {
               <span className="text-xs font-semibold uppercase tracking-wider opacity-90">
                 Guests
               </span>
+
               <div
                 onClick={() => setShowGuestMenu(!showGuestMenu)}
                 className={`bg-white text-gray-700 rounded-xl h-14 flex items-center px-4 shadow-inner relative hover:ring-2 ring-[#0A1A44]/20 transition-all cursor-pointer ${showGuestMenu ? "ring-2 ring-[#0A1A44]" : ""}`}
@@ -502,8 +510,10 @@ function AccommodationContent() {
                   className={`w-4 h-4 text-gray-400 transition-transform shrink-0 ml-2 ${showGuestMenu ? "rotate-180" : ""}`}
                 />
               </div>
+
               {showGuestMenu && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-slate-100 p-4 z-50 animate-in zoom-in-95 origin-top min-w-[280px]">
+                  {/* Adults Row */}
                   <div className="flex justify-between items-center mb-4">
                     <div>
                       <p className="text-sm font-bold text-slate-700">Adults</p>
@@ -529,7 +539,10 @@ function AccommodationContent() {
                       </button>
                     </div>
                   </div>
+
                   <div className="h-px bg-slate-100 w-full mb-4"></div>
+
+                  {/* Children Row */}
                   <div className="flex justify-between items-center mb-4">
                     <div>
                       <p className="text-sm font-bold text-slate-700">
@@ -557,7 +570,10 @@ function AccommodationContent() {
                       </button>
                     </div>
                   </div>
+
                   <div className="h-px bg-slate-100 w-full mb-4"></div>
+
+                  {/* Infants Row */}
                   <div className="flex justify-between items-center mb-4">
                     <div>
                       <p className="text-sm font-bold text-slate-700">
@@ -659,7 +675,8 @@ function AccommodationContent() {
                   priceNight={room.price_night}
                   priceOvernight={room.price_overnight}
                   onBook={(roomData) => setSelectedRoom(roomData)}
-                  // ✅ PASSING CALCULATED RATINGS
+                  // ✅ Passing Props to Card
+                  capacity={room.capacity}
                   rating={room.avg_rating}
                   reviewCount={room.review_count}
                 />
@@ -668,6 +685,7 @@ function AccommodationContent() {
           )}
         </div>
       </div>
+
       <Footer />
     </main>
   );
