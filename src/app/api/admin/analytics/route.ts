@@ -1,3 +1,4 @@
+import { authorizeAdmin } from "@/lib/admin-auth";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
@@ -87,6 +88,9 @@ function getDateConfig(range: string, targetDateStr?: string | null) {
 
 export async function GET(request: Request) {
   const supabase = await createClient();
+  const { error: authError } = await authorizeAdmin(supabase);
+  if (authError) return authError;
+
   const { searchParams } = new URL(request.url);
 
   // ✅ Get independent ranges AND specific dates

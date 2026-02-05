@@ -1,21 +1,37 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { EventInquirySchema } from "@/lib/schemas"; // <--- 1. Import the Schema
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+
+    // 2. 🔒 VALIDATE INPUT (The "Bouncer")
+    // If the data is bad (e.g. wrong phone format), this returns an error immediately.
+    const validation = EventInquirySchema.safeParse(body);
+
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: "Invalid data", details: validation.error.format() },
+        { status: 400 },
+      );
+    }
+
+    // 3. Use the CLEAN data (validation.data)
+    const validData = validation.data;
+
     const supabase = await createClient();
 
     // Insert into 'event_inquiries' table
     const { error } = await supabase.from("event_inquiries").insert({
-      full_name: body.fullName,
-      email: body.email,
-      phone: body.phone,
-      event_type: body.eventType,
-      preferred_date: body.date,
-      guest_count: body.guestCount,
-      message: body.message,
-      status: "new", // Default status for admin to track
+      full_name: validData.fullName,
+      email: validData.email,
+      phone: validData.phone,
+      event_type: validData.eventType,
+      preferred_date: validData.date,
+      guest_count: validData.guestCount,
+      message: validData.message,
+      status: "new",
     });
 
     if (error) throw error;
@@ -25,7 +41,7 @@ export async function POST(request: Request) {
     console.error("Event inquiry error:", error);
     return NextResponse.json(
       { error: "Failed to submit inquiry" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
