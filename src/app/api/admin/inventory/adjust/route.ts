@@ -1,16 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { logAdminAction } from "@/lib/admin-logger";
+import { authorizeAdmin } from "@/lib/admin-auth";
 
 export async function POST(request: Request) {
   try {
     const supabase = await createClient();
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { error: authError, user } = await authorizeAdmin(supabase);
+    if (authError) return authError;
 
     const { supply_id, type, quantity, notes, room_id } = await request.json();
 

@@ -1,9 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { authorizeAdmin } from "@/lib/admin-auth"; // <--- IMPORT THIS
 
 // GET: Fetch all promos
 export async function GET() {
   const supabase = await createClient();
+
+  // 🔒 SECURITY CHECK
+  const { error: authError } = await authorizeAdmin(supabase);
+  if (authError) return authError;
 
   const { data: promos, error } = await supabase
     .from("promotions")
@@ -19,24 +24,33 @@ export async function GET() {
 // POST: Create a new promo
 export async function POST(request: Request) {
   const supabase = await createClient();
-  const body = await request.json();
 
-  const { data, error } = await supabase
-    .from("promotions")
-    .insert([
-      {
-        code: body.code,
-        name: body.name,
-        discount_type: body.discount_type,
-        discount_value: body.discount_value,
-        valid_until: body.valid_until,
-        status: "active",
-      },
-    ])
-    .select();
+  // 🔒 SECURITY CHECK (CRITICAL: Was missing!)
+  const { error: authError } = await authorizeAdmin(supabase);
+  if (authError) return authError;
 
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  try {
+    const body = await request.json();
 
-  return NextResponse.json(data);
+    const { data, error } = await supabase
+      .from("promotions")
+      .insert([
+        {
+          code: body.code,
+          name: body.name,
+          discount_type: body.discount_type,
+          discount_value: body.discount_value,
+          valid_until: body.valid_until,
+          status: "active",
+        },
+      ])
+      .select();
+
+    if (error) throw error;
+    return NextResponse.json(data);
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Error creating promo";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

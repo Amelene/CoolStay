@@ -90,16 +90,9 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    // ✅ Extract the specific counts
-    const {
-      room_type_id,
-      check_in,
-      check_out,
-      adults,
-      children,
-      infants,
-      total_price,
-    } = body;
+    // ⚠️ Note: We purposefully IGNORE 'total_price' from body for security
+    const { room_type_id, check_in, check_out, adults, children, infants } =
+      body;
 
     const adminDb = createAdminClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -109,16 +102,32 @@ export async function POST(request: Request) {
     // 1. GLOBAL CLEANUP
     await cleanupExpiredBookings(adminDb);
 
-    // 2. Check Room Details
+    // 2. Check Room Details & Get REAL PRICE from Database
     const { data: roomType, error: roomError } = await adminDb
       .from("room_types")
-      .select("total_rooms")
+      .select("total_rooms, base_price, price_night") // Fetch prices
       .eq("id", room_type_id)
       .single();
 
     if (roomError || !roomType) throw new Error("Room type not found.");
 
-    // 3. Availability Logic
+    // 🔒 3. SERVER-SIDE PRICE CALCULATION (The Security Fix)
+    const start = new Date(check_in);
+    const end = new Date(check_out);
+    const nights = Math.max(
+      1,
+      Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)),
+    );
+
+    // Fallback logic: Use nightly price if available, otherwise base_price
+    const rate =
+      roomType.price_night && roomType.price_night > 0
+        ? roomType.price_night
+        : roomType.base_price;
+
+    const calculatedTotal = rate * nights;
+
+    // 4. Availability Logic
     const searchStart = check_in;
     const searchEnd =
       check_out === check_in
@@ -157,7 +166,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 4. Create Booking with breakdown
+    // 5. Create Booking with breakdown
     const { data, error: insertError } = await adminDb
       .from("bookings")
       .insert({
@@ -166,10 +175,10 @@ export async function POST(request: Request) {
         check_in_date: check_in,
         check_out_date: check_out,
         guests_count: (Number(adults) || 1) + (Number(children) || 0), // Legacy Sum
-        adults: Number(adults) || 1, // ✅ Save Adults
-        children: Number(children) || 0, // ✅ Save Children
-        infants: Number(infants) || 0, // ✅ Save Infants
-        total_amount: total_price,
+        adults: Number(adults) || 1,
+        children: Number(children) || 0,
+        infants: Number(infants) || 0,
+        total_amount: calculatedTotal, // ✅ SECURE: Uses server value
         status: "pending",
         payment_status: "pending",
       })
