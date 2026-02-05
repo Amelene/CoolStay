@@ -1,25 +1,13 @@
+import { authorizeAdmin } from "@/lib/admin-auth";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { SupabaseClient } from "@supabase/supabase-js";
-
-// ✅ Fix: Use strict SupabaseClient type instead of 'any'
-async function checkAuth(supabase: SupabaseClient) {
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-  if (error || !user) return false;
-  return true;
-}
 
 export async function GET() {
   try {
     const supabase = await createClient();
 
-    // 🔒 SECURITY CHECK
-    if (!(await checkAuth(supabase))) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { error: authError } = await authorizeAdmin(supabase);
+    if (authError) return authError;
 
     const { data, error } = await supabase
       .from("inventory_supplies")
@@ -41,10 +29,8 @@ export async function POST(request: Request) {
   try {
     const supabase = await createClient();
 
-    // 🔒 SECURITY CHECK
-    if (!(await checkAuth(supabase))) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { error: authError } = await authorizeAdmin(supabase);
+    if (authError) return authError;
 
     const body = await request.json();
     const { item_name, category, min_stock, unit, cost } = body;

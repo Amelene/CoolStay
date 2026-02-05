@@ -1,3 +1,4 @@
+import { authorizeAdmin } from "@/lib/admin-auth";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
@@ -8,13 +9,8 @@ export async function GET() {
     // 1. Use the standard client (respects RLS & Cookies)
     const supabase = await createClient();
 
-    // 2. 🔒 SECURITY CHECK: Verify Admin Access
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+    const { error: authError } = await authorizeAdmin(supabase);
+    if (authError) return authError;
     // Optional: Check specific admin role if you have it in metadata or table
     // const { data: isAdmin } = await supabase.rpc("is_admin");
     // if (!isAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });

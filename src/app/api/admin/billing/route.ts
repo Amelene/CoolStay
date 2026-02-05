@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { logAdminAction } from "@/lib/admin-logger";
+import { authorizeAdmin } from "@/lib/admin-auth";
 
 // --- TYPES for Manual Fetching ---
 interface Payment {
@@ -42,7 +43,7 @@ interface RoomType {
 // Extracted so both POST and PATCH can use it
 async function updateBookingStatus(
   supabase: SupabaseClient,
-  bookingId: string
+  bookingId: string,
 ) {
   try {
     // 1. Fetch Booking
@@ -69,7 +70,7 @@ async function updateBookingStatus(
       (sum: number, p: { amount: number | string }) => {
         return sum + Number(p.amount);
       },
-      0
+      0,
     );
 
     const totalDue = Number(booking.total_amount);
@@ -108,12 +109,8 @@ export async function GET() {
   try {
     const supabase = await createClient();
 
-    // 1. Check User (Security)
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { error: authError } = await authorizeAdmin(supabase);
+    if (authError) return authError;
 
     // 2. Fetch All Payments (Raw)
     const { data: rawPayments, error: paymentsError } = await supabase
@@ -128,8 +125,8 @@ export async function GET() {
     // FIXED: Replaced .filter(Boolean) with explicit type guard to remove 'any' error
     const bookingIds = Array.from(
       new Set(
-        payments.map((p) => p.booking_id).filter((id): id is string => !!id)
-      )
+        payments.map((p) => p.booking_id).filter((id): id is string => !!id),
+      ),
     );
 
     // 4. Fetch Related Bookings (Raw)
@@ -141,7 +138,7 @@ export async function GET() {
       const { data: bookings } = await supabase
         .from("bookings")
         .select(
-          "id, guest_id, check_in_date, check_out_date, room_type_id, total_amount, status"
+          "id, guest_id, check_in_date, check_out_date, room_type_id, total_amount, status",
         )
         .in("id", bookingIds);
 
@@ -229,6 +226,10 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const supabase = await createClient();
+
+    const { error: authError } = await authorizeAdmin(supabase);
+    if (authError) return authError;
+
     const body = await request.json();
     const { booking_id, amount, method, type, notes } = body;
 
@@ -266,16 +267,14 @@ export async function POST(request: Request) {
 }
 
 // PATCH: Verify Payment & Auto-Update Booking Balance
+// PATCH: Verify Payment & Auto-Update Booking Balance
 export async function PATCH(request: Request) {
   try {
     const supabase = await createClient();
 
-    // Get Current Admin User
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user)
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // ✅ FIX 1: Extract 'user' here
+    const { error: authError, user } = await authorizeAdmin(supabase);
+    if (authError) return authError;
 
     const body = await request.json();
     const { payment_id, status, verified_amount } = body;
@@ -306,13 +305,14 @@ export async function PATCH(request: Request) {
     }
 
     // ✅ LOG THE ACTION
+    // Now 'user' is defined and safe to use because we checked authError above
     await logAdminAction(
       supabase,
-      user.id,
+      user!.id, // use ! because we know user exists if auth passed
       status === "completed" ? "Verified Payment" : "Rejected Payment",
       `Payment ID: ${payment_id.substring(0, 8)} | Amount: ${
         updateData.amount || payment.amount
-      }`
+      }`,
     );
 
     // IF REJECTED, stop here.
@@ -321,10 +321,9 @@ export async function PATCH(request: Request) {
     }
 
     // 3. Trigger Auto-Balance Helper
-    // ... (Keep existing Auto-Balance Logic) ...
-
-    // (Assuming updateBookingStatus is defined in your file as per previous code)
-    // if (payment.booking_id) await updateBookingStatus(supabase, payment.booking_id);
+    if (payment.booking_id) {
+      await updateBookingStatus(supabase, payment.booking_id);
+    }
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
