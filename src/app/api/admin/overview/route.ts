@@ -11,9 +11,6 @@ export async function GET() {
 
     const { error: authError } = await authorizeAdmin(supabase);
     if (authError) return authError;
-    // Optional: Check specific admin role if you have it in metadata or table
-    // const { data: isAdmin } = await supabase.rpc("is_admin");
-    // if (!isAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const todayStr = new Date().toISOString().split("T")[0];
 

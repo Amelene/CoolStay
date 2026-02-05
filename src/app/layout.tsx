@@ -21,10 +21,20 @@ const goblinOne = Goblin_One({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://www.coolstay.site"),
+
   title: "CoolStay",
   description: "Bulacan Great Escape",
   icons: {
     icon: "/images/logo/coolstayicon.png",
+  },
+  openGraph: {
+    title: "CoolStay",
+    description: "Bulacan Great Escape",
+    url: "https://www.coolstay.site",
+    siteName: "CoolStay",
+    locale: "en_US",
+    type: "website",
   },
 };
 

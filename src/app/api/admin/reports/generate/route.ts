@@ -1,3 +1,4 @@
+import { authorizeAdmin } from "@/lib/admin-auth";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
@@ -10,11 +11,8 @@ export async function POST(request: Request) {
   const body = await request.json();
   const { kpi, revenueChart, roomPopularity, rangeLabel } = body;
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { error: authError, user } = await authorizeAdmin(supabase);
+  if (authError) return authError;
 
   // 1. Prepare the Snapshot Data
   const reportSnapshot = {

@@ -1,23 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
+import { authorizeAdmin } from "@/lib/admin-auth";
 
 // Create a separate ADMIN client that bypasses RLS
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
 export async function POST(request: Request) {
   try {
     // 1. Security Check: Ensure requester is an actual Admin
     const supabase = await createServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user)
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { error: authError, user } = await authorizeAdmin(supabase);
+    if (authError) return authError;
 
     const { data: requesterProfile } = await supabase
       .from("users")
@@ -28,7 +25,7 @@ export async function POST(request: Request) {
     if (requesterProfile?.role !== "admin") {
       return NextResponse.json(
         { error: "Forbidden: Only Admins can invite staff" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
@@ -39,7 +36,7 @@ export async function POST(request: Request) {
     if (!email || !role) {
       return NextResponse.json(
         { error: "Email and Role are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 

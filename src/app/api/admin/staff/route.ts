@@ -1,26 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { SupabaseClient } from "@supabase/supabase-js";
-
-// Helper for security check with proper typing
-async function checkAdmin(supabase: SupabaseClient) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return false;
-
-  // Use our safe is_admin RPC function if available
-  const { data: isAdmin } = await supabase.rpc("is_admin");
-  return isAdmin;
-}
+import { authorizeAdmin } from "@/lib/admin-auth";
 
 // GET: Fetch all staff
 export async function GET() {
   const supabase = await createClient();
 
-  if (!(await checkAdmin(supabase))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const { error: authError } = await authorizeAdmin(supabase);
+  if (authError) return authError;
 
   const { data: staff, error } = await supabase
     .from("staff")
@@ -36,9 +23,8 @@ export async function GET() {
 export async function POST(request: Request) {
   const supabase = await createClient();
 
-  if (!(await checkAdmin(supabase))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const { error: authError } = await authorizeAdmin(supabase);
+  if (authError) return authError;
 
   try {
     const body = await request.json();
@@ -48,7 +34,7 @@ export async function POST(request: Request) {
       .from("staff")
       .insert([
         {
-          user_id: body.user_id || null, // <--- Added this link
+          user_id: body.user_id || null,
           employee_id: body.employee_id,
           full_name: body.full_name,
           email: body.email,
@@ -76,9 +62,8 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const supabase = await createClient();
 
-  if (!(await checkAdmin(supabase))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const { error: authError } = await authorizeAdmin(supabase);
+  if (authError) return authError;
 
   try {
     const body = await request.json();
@@ -104,9 +89,8 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const supabase = await createClient();
 
-  if (!(await checkAdmin(supabase))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const { error: authError } = await authorizeAdmin(supabase);
+  if (authError) return authError;
 
   try {
     const { searchParams } = new URL(request.url);

@@ -1,14 +1,11 @@
+import { authorizeAdmin } from "@/lib/admin-auth";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
 export async function GET() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { error: authError, user } = await authorizeAdmin(supabase);
+  if (authError) return authError;
 
   // 1. Fetch User Details from 'users' table
   const { data: userDetails } = await supabase
