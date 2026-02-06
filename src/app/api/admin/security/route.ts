@@ -14,13 +14,13 @@ export async function GET() {
     .eq("id", user.id)
     .single();
 
-  // 2. Fetch Activity Logs
+  // 2. Fetch Activity Logs (Increased limit for pagination)
   const { data: logs } = await supabase
     .from("admin_activity_logs")
     .select("*")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
-    .limit(10);
+    .limit(50); //
 
   return NextResponse.json({
     profile: userDetails,

@@ -9,7 +9,11 @@ import {
   Lock,
   Smartphone,
   Globe,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
+import ChangePasswordModal from "@/components/admin/security/ChangePasswordModal"; // Import the modal
+import { Button } from "@/components/ui/Button";
 
 type SecurityData = {
   profile: {
@@ -28,23 +32,32 @@ type SecurityData = {
   }[];
 };
 
+const LOGS_PER_PAGE = 5;
+
 export default function SecurityPage() {
   const [data, setData] = useState<SecurityData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // State for Modal
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+
+  // State for Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const fetchSecurityData = async () => {
+    try {
+      const res = await fetch("/api/admin/security");
+      if (!res.ok) throw new Error("Failed");
+      const json = await res.json();
+      setData(json);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchSecurityData = async () => {
-      try {
-        const res = await fetch("/api/admin/security");
-        if (!res.ok) throw new Error("Failed");
-        const json = await res.json();
-        setData(json);
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
     fetchSecurityData();
   }, []);
 
@@ -62,6 +75,20 @@ export default function SecurityPage() {
     );
 
   const securityScore = data.profile.is_two_factor_enabled ? 100 : 50;
+
+  // --- Pagination Logic ---
+  const totalLogs = data.logs.length;
+  const totalPages = Math.ceil(totalLogs / LOGS_PER_PAGE);
+  const startIndex = (currentPage - 1) * LOGS_PER_PAGE;
+  const currentLogs = data.logs.slice(startIndex, startIndex + LOGS_PER_PAGE);
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) setCurrentPage((prev) => prev + 1);
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) setCurrentPage((prev) => prev - 1);
+  };
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-[#F5F8FA] p-8 -m-6 font-sans">
@@ -135,7 +162,11 @@ export default function SecurityPage() {
                     </p>
                   </div>
                 </div>
-                <button className="text-sm font-bold text-blue-600 hover:text-blue-800 hover:underline">
+                {/* ✅ LINKED: Opens Modal on Click */}
+                <button
+                  onClick={() => setIsPasswordModalOpen(true)}
+                  className="text-sm font-bold text-blue-600 hover:text-blue-800 hover:underline"
+                >
                   Update
                 </button>
               </div>
@@ -194,7 +225,12 @@ export default function SecurityPage() {
           </div>
 
           <div className="bg-white/60 backdrop-blur-sm rounded-3xl p-6 shadow-sm border border-white/50">
-            <h3 className="font-bold text-[#0A1A44] mb-4">Activity Log</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-[#0A1A44]">Activity Log</h3>
+              <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-md">
+                Page {currentPage} of {totalPages || 1}
+              </span>
+            </div>
 
             {data.logs.length === 0 ? (
               <p className="text-sm text-slate-500 text-center py-4">
@@ -202,10 +238,10 @@ export default function SecurityPage() {
               </p>
             ) : (
               <div className="space-y-4">
-                {data.logs.map((log) => (
+                {currentLogs.map((log) => (
                   <div
                     key={log.id}
-                    className="bg-white p-4 rounded-xl shadow-sm border border-blue-50"
+                    className="bg-white p-4 rounded-xl shadow-sm border border-blue-50 animate-in fade-in slide-in-from-bottom-2"
                   >
                     <div className="flex items-start gap-3">
                       <div className="mt-1 text-slate-400">
@@ -231,9 +267,52 @@ export default function SecurityPage() {
                 ))}
               </div>
             )}
+
+            {/* ✅ PAGINATION CONTROLS */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-200">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handlePrevPage}
+                  disabled={currentPage === 1}
+                  className="text-slate-500 disabled:opacity-30"
+                >
+                  <ChevronLeft className="w-4 h-4 mr-1" /> Prev
+                </Button>
+
+                <div className="flex gap-1">
+                  {/* Simple dots indicator */}
+                  {Array.from({ length: Math.min(totalPages, 5) }).map(
+                    (_, i) => (
+                      <div
+                        key={i}
+                        className={`w-1.5 h-1.5 rounded-full ${i + 1 === currentPage ? "bg-blue-500" : "bg-slate-200"}`}
+                      />
+                    ),
+                  )}
+                </div>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleNextPage}
+                  disabled={currentPage === totalPages}
+                  className="text-slate-500 disabled:opacity-30"
+                >
+                  Next <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* ✅ Modal Component */}
+      <ChangePasswordModal
+        isOpen={isPasswordModalOpen}
+        onClose={() => setIsPasswordModalOpen(false)}
+      />
     </div>
   );
 }
