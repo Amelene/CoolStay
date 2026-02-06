@@ -12,7 +12,8 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import ChangePasswordModal from "@/components/admin/security/ChangePasswordModal"; // Import the modal
+import ChangePasswordModal from "@/components/admin/security/ChangePasswordModal";
+import TwoFactorModal from "@/components/admin/security/TwoFactorModal"; // ✅ Import 2FA Modal
 import { Button } from "@/components/ui/Button";
 
 type SecurityData = {
@@ -38,10 +39,11 @@ export default function SecurityPage() {
   const [data, setData] = useState<SecurityData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // State for Modal
+  // --- Modals State ---
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [isTwoFactorModalOpen, setIsTwoFactorModalOpen] = useState(false); // ✅ New State
 
-  // State for Pagination
+  // --- Pagination State ---
   const [currentPage, setCurrentPage] = useState(1);
 
   const fetchSecurityData = async () => {
@@ -150,6 +152,7 @@ export default function SecurityPage() {
             </h2>
 
             <div className="space-y-4">
+              {/* Password Section */}
               <div className="flex items-center justify-between p-4 border border-blue-100 rounded-xl bg-slate-50/50">
                 <div className="flex items-center gap-4">
                   <div className="p-2 bg-white rounded-lg border border-slate-200 text-slate-500">
@@ -162,7 +165,6 @@ export default function SecurityPage() {
                     </p>
                   </div>
                 </div>
-                {/* ✅ LINKED: Opens Modal on Click */}
                 <button
                   onClick={() => setIsPasswordModalOpen(true)}
                   className="text-sm font-bold text-blue-600 hover:text-blue-800 hover:underline"
@@ -171,6 +173,7 @@ export default function SecurityPage() {
                 </button>
               </div>
 
+              {/* 2FA Section - Now Interactive */}
               <div className="flex items-center justify-between p-4 border border-blue-100 rounded-xl hover:bg-blue-50 transition-colors bg-white">
                 <div className="flex items-center gap-4">
                   <div
@@ -188,11 +191,17 @@ export default function SecurityPage() {
                     </h4>
                     <p className="text-xs text-slate-500">
                       {data.profile.is_two_factor_enabled
-                        ? "Enabled"
-                        : "Disabled"}
+                        ? "Enabled & Secure"
+                        : "Not Enabled"}
                     </p>
                   </div>
                 </div>
+                <button
+                  onClick={() => setIsTwoFactorModalOpen(true)}
+                  className="text-sm font-bold text-blue-600 hover:text-blue-800 hover:underline"
+                >
+                  {data.profile.is_two_factor_enabled ? "Manage" : "Setup"}
+                </button>
               </div>
             </div>
           </div>
@@ -268,7 +277,7 @@ export default function SecurityPage() {
               </div>
             )}
 
-            {/* ✅ PAGINATION CONTROLS */}
+            {/* Pagination Controls */}
             {totalPages > 1 && (
               <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-200">
                 <Button
@@ -282,12 +291,13 @@ export default function SecurityPage() {
                 </Button>
 
                 <div className="flex gap-1">
-                  {/* Simple dots indicator */}
                   {Array.from({ length: Math.min(totalPages, 5) }).map(
                     (_, i) => (
                       <div
                         key={i}
-                        className={`w-1.5 h-1.5 rounded-full ${i + 1 === currentPage ? "bg-blue-500" : "bg-slate-200"}`}
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          i + 1 === currentPage ? "bg-blue-500" : "bg-slate-200"
+                        }`}
                       />
                     ),
                   )}
@@ -308,10 +318,19 @@ export default function SecurityPage() {
         </div>
       </div>
 
-      {/* ✅ Modal Component */}
+      {/* --- Modals --- */}
       <ChangePasswordModal
         isOpen={isPasswordModalOpen}
         onClose={() => setIsPasswordModalOpen(false)}
+      />
+
+      <TwoFactorModal
+        isOpen={isTwoFactorModalOpen}
+        onClose={() => setIsTwoFactorModalOpen(false)}
+        isEnabled={data.profile.is_two_factor_enabled}
+        onSuccess={() => {
+          fetchSecurityData(); // Refresh data so "Enabled" status updates immediately
+        }}
       />
     </div>
   );

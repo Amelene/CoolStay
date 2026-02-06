@@ -1,12 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { logAdminAction } from "@/lib/admin-logger"; // Import the helper
+import { logAdminAction } from "@/lib/admin-logger";
 
 export async function POST(request: Request) {
   try {
     const { email, password } = await request.json();
     const supabase = await createClient();
 
+    // 1. Attempt Basic Login (AAL1)
     const {
       data: { user },
       error: authError,
@@ -18,22 +19,30 @@ export async function POST(request: Request) {
     if (authError || !user) {
       return NextResponse.json(
         { error: authError?.message || "Invalid login credentials" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
+    // 2. Fetch User Profile & Settings
     const { data: profile } = await supabase
       .from("users")
-      .select("role, full_name")
+      .select("role, full_name, is_two_factor_enabled")
       .eq("id", user.id)
       .single();
 
-    // ✅ LOG THE LOGIN ACTION
+    // 3. 2FA Check Enforcement
+    if (profile?.is_two_factor_enabled) {
+      // ✅ Intercept: Do not log "User Login" yet, effectively they are not fully in.
+      // Redirect to the verification page
+      return NextResponse.json({ redirectUrl: "/auth/verify-2fa" });
+    }
+
+    // 4. Standard Login Success Logging (Only if no 2FA or 2FA not enabled)
     await logAdminAction(
       supabase,
       user.id,
       "User Login",
-      `Role: ${profile?.role}`
+      `Role: ${profile?.role}`,
     );
 
     const redirectUrl =
@@ -44,7 +53,7 @@ export async function POST(request: Request) {
     console.error("Login API Error:", error);
     return NextResponse.json(
       { error: "An unexpected error occurred" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

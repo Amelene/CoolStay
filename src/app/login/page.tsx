@@ -59,6 +59,13 @@ function LoginContent() {
         throw new Error(data.error || "Login failed");
       }
 
+      // ✅ 2FA REDIRECT CHECK
+      if (data.redirectUrl === "/auth/verify-2fa") {
+        toast.info("Two-factor authentication required.");
+        router.push("/auth/verify-2fa");
+        return;
+      }
+
       toast.success("Welcome back!");
 
       if (returnTo) {
@@ -104,7 +111,6 @@ function LoginContent() {
       toast.success("Reset link sent! Check your email.");
       setView("login"); // Switch back to login after success
     } catch (error: unknown) {
-      // Fixed: Changed 'any' to 'unknown'
       if (error instanceof Error) {
         toast.error(error.message);
       } else {
