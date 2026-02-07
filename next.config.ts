@@ -24,7 +24,7 @@ const nextConfig: NextConfig = {
       {
         source: "/(.*)",
         headers: [
-          // 1. Basic Security (Previous Step)
+          // 1. Basic Security
           {
             key: "X-Content-Type-Options",
             value: "nosniff",
@@ -41,24 +41,23 @@ const nextConfig: NextConfig = {
             key: "Referrer-Policy",
             value: "strict-origin-when-cross-origin",
           },
-          // 2. Permissions Policy (Privacy First)
-          // "()" means "Disabled for everyone"
+          // 2. Permissions Policy
           {
             key: "Permissions-Policy",
             value:
               "camera=(), microphone=(), geolocation=(), browsing-topics=()",
           },
-          // 3. Content Security Policy (The Big One)
-          // We allow 'self' (your site), Supabase, Unsplash, and standard styles/fonts
+          // 3. Content Security Policy
           {
             key: "Content-Security-Policy",
             value: `
               default-src 'self';
               script-src 'self' 'unsafe-inline' 'unsafe-eval';
               style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-              img-src 'self' blob: data: https://images.unsplash.com https://flpudkhcaesncvfsioqx.supabase.co;
+              img-src 'self' blob: data: https://images.unsplash.com https://flpudkhcaesncvfsioqx.supabase.co https://maps.googleapis.com https://maps.gstatic.com;
               font-src 'self' data: https://fonts.gstatic.com;
               connect-src 'self' https://flpudkhcaesncvfsioqx.supabase.co https://*.supabase.co;
+              frame-src 'self' https://www.google.com https://maps.google.com;
               frame-ancestors 'none';
             `
               .replace(/\s{2,}/g, " ")

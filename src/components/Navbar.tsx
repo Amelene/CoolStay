@@ -142,7 +142,7 @@ export default function Navbar({
   const navLinks = [
     { name: "Home", href: user ? "/dashboard" : "/", id: "home" },
     { name: "Accommodation", href: "/accommodation", id: "accommodation" },
-    { name: "Day Pass", href: "/day-pass", id: "day-pass" },
+    // { name: "Day Pass", href: "/day-pass", id: "day-pass" },
     { name: "Plan An Event", href: "/events", id: "events" },
     { name: "Experience", href: "/experience", id: "experience" },
   ];

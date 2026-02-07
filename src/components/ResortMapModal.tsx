@@ -32,28 +32,29 @@ export default function ResortMapModal({
             width="100%"
             height="100%"
             id="gmap_canvas"
-            src="https://maps.google.com/maps?q=Cool%20Waves%20Ranch%20and%20Waterpark%20Resort%20Bulacan&t=&z=15&ie=UTF8&iwloc=&output=embed"
-            frameBorder="0"
-            scrolling="no"
-            marginHeight={0}
-            marginWidth={0}
+            // UPDATED: Direct Embed for 777 Libo St, Bulakan, Bulacan
+            src="https://maps.google.com/maps?q=777+Libo+St,+San+Nicolas,+Bulakan,+Bulacan&t=&z=15&ie=UTF8&iwloc=&output=embed"
+            style={{ border: 0 }}
+            allowFullScreen={true}
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
             className="w-full h-full"
             title="CoolStay Resort Map"
           ></iframe>
 
-          {/* Overlay to block interaction if needed (optional) */}
-          <div className="absolute bottom-4 left-4 bg-white/90 p-4 rounded-xl shadow-lg max-w-xs backdrop-blur-sm">
+          {/* Overlay Card */}
+          <div className="absolute bottom-4 left-4 bg-white/95 p-4 rounded-xl shadow-lg max-w-xs backdrop-blur-md border border-slate-100">
             <h3 className="font-serif font-bold text-[#0A1A44]">
               CoolStay Resort
             </h3>
-            <p className="text-xs text-slate-600 mt-1">
-              777 Libo St, Brgy. San Nicolas, Bulakan, Bulacan
+            <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+              777 Libo St, Brgy. San Nicolas, <br /> Bulakan, Bulacan
             </p>
             <a
-              href="https://www.google.com/maps/search/?api=1&query=Cool+Waves+Ranch+and+Waterpark+Resort+Bulacan"
+              href="https://www.google.com/maps/search/?api=1&query=777+Libo+St,+San+Nicolas,+Bulakan,+Bulacan"
               target="_blank"
               rel="noreferrer"
-              className="text-xs font-bold text-blue-600 hover:underline mt-2 inline-block"
+              className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline mt-3 inline-flex items-center gap-1"
             >
               Get Directions →
             </a>
