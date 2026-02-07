@@ -1,3 +1,5 @@
+// src/app/dashboard/page.tsx
+
 "use client";
 
 import Navbar from "@/components/Navbar";
@@ -27,6 +29,7 @@ import {
 } from "lucide-react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import BookingReceipt from "@/components/pdf/BookingReceipt";
+import { useRouter } from "next/navigation"; // Added router import
 
 // --- TYPES ---
 interface RoomType {
@@ -421,6 +424,7 @@ const BookingCard = ({
 };
 
 export default function DashboardPage() {
+  const router = useRouter(); // Initialize Router
   const [user, setUser] = useState<User | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [reviewedBookingIds, setReviewedBookingIds] = useState<Set<string>>(
@@ -450,9 +454,16 @@ export default function DashboardPage() {
   }, []);
 
   const fetchBookings = useCallback(async () => {
-    if (!user) return;
+    // If not user check is removed to allow fetch to handle unauthorized response
     try {
       const res = await fetch("/api/bookings");
+
+      // Handle Unauthorized / Session Loss
+      if (res.status === 401 || res.status === 403) {
+        router.push("/login?return_to=/dashboard");
+        return;
+      }
+
       const result = await res.json();
 
       if (res.ok && result.bookings) {
@@ -461,24 +472,26 @@ export default function DashboardPage() {
         console.error("Fetch error:", result.error);
       }
 
-      const supabase = createClient();
-      const { data: reviews } = await supabase
-        .from("reviews")
-        .select("booking_id")
-        .eq("user_id", user.id);
+      if (user) {
+        const supabase = createClient();
+        const { data: reviews } = await supabase
+          .from("reviews")
+          .select("booking_id")
+          .eq("user_id", user.id);
 
-      if (reviews) {
-        const reviewedIds = new Set(
-          reviews.map((r) => r.booking_id).filter(Boolean),
-        );
-        setReviewedBookingIds(reviewedIds as Set<string>);
+        if (reviews) {
+          const reviewedIds = new Set(
+            reviews.map((r) => r.booking_id).filter(Boolean),
+          );
+          setReviewedBookingIds(reviewedIds as Set<string>);
+        }
       }
     } catch (error) {
       console.error("Failed to load data", error);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, router]); // Added router dependency
 
   useEffect(() => {
     fetchBookings();

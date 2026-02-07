@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import Image from "next/image";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { User } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
@@ -14,6 +14,7 @@ import {
   LogOut,
   LayoutDashboard,
   Settings,
+  ShieldAlert,
 } from "lucide-react";
 
 interface NavbarProps {
@@ -29,51 +30,92 @@ export default function Navbar({
   const [user, setUser] = useState<User | null>(null);
   const [name, setName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isSecureSession, setIsSecureSession] = useState(true);
 
   // States
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const supabase = createClient();
+  const supabase = createClient();
 
+  // Helper: Check if user is fully authenticated (AAL2 if required)
+  const checkSecurityStatus = useCallback(async () => {
+    try {
+      const { data, error } =
+        await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (error) return; // Ignore errors here, default to secure
+
+      if (data && data.currentLevel === "aal1" && data.nextLevel === "aal2") {
+        setIsSecureSession(false);
+      } else {
+        setIsSecureSession(true);
+      }
+    } catch (err) {
+      // Fail silent
+      setIsSecureSession(true);
+    }
+  }, [supabase]);
+
+  useEffect(() => {
     // 1. Initial Fetch
     const getUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      try {
+        const {
+          data: { user },
+          error,
+        } = await supabase.auth.getUser();
 
-      if (user) {
-        setUser(user);
-        const fullName = user.user_metadata?.full_name || "Member";
-        setName(fullName);
+        // ✅ FIX: Handle "No Session" gracefully without console errors
+        if (error) {
+          // If the error confirms no session, we just stay as "Guest"
+          if (
+            error.message.includes("Auth session missing") ||
+            error.name === "AuthSessionMissingError"
+          ) {
+            setUser(null);
+            return; // Exit normally
+          }
+          // If it's a real error (like network issues), throw it
+          throw error;
+        }
+
+        if (user) {
+          setUser(user);
+          const fullName = user.user_metadata?.full_name || "Member";
+          setName(fullName);
+          await checkSecurityStatus();
+        }
+      } catch (error) {
+        console.error("Navbar Auth Error:", error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     getUser();
 
-    // 2. ✅ LISTENER: Auto-update when profile changes
+    // 2. LISTENER: Auto-update when profile/auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      // 'USER_UPDATED' fires when you update profile metadata
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         setUser(session.user);
         const fullName = session.user.user_metadata?.full_name || "Member";
         setName(fullName);
+        await checkSecurityStatus();
       } else if (event === "SIGNED_OUT") {
         setUser(null);
         setName(null);
+        setIsSecureSession(true);
       }
+      setLoading(false);
     });
 
-    // Cleanup subscription
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [supabase, checkSecurityStatus]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -90,11 +132,10 @@ export default function Navbar({
   }, []);
 
   const handleSignOut = async () => {
-    const supabase = createClient();
     await supabase.auth.signOut();
     setUser(null);
     setIsMobileMenuOpen(false);
-    router.push("/");
+    router.push("/login");
     router.refresh();
   };
 
@@ -177,56 +218,69 @@ export default function Navbar({
           {!loading && (
             <>
               {user ? (
-                <div className="relative" ref={dropdownRef}>
-                  <button
-                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                    className="group flex items-center gap-3 p-1.5 pr-4 rounded-full hover:bg-white/10 transition-all duration-300 border border-transparent hover:border-white/20 cursor-pointer"
-                  >
-                    <div className="flex flex-col items-end mr-2">
-                      <span className="text-sm font-bold leading-none group-hover:text-blue-200 max-w-[120px] truncate">
-                        {name}
-                      </span>
-                      <span className="text-[10px] text-blue-200 uppercase tracking-wider group-hover:text-white">
-                        Member
-                      </span>
-                    </div>
-                    <div className="h-10 w-10 rounded-full bg-white border-2 border-blue-200 flex items-center justify-center overflow-hidden shadow-sm transition-transform duration-300 group-hover:scale-110">
-                      <UserIcon className="w-6 h-6 text-[#0A1A44]" />
-                    </div>
-                  </button>
-
-                  {/* Dropdown Menu */}
-                  {isDropdownOpen && (
-                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl py-2 text-gray-800 animate-in fade-in zoom-in duration-200 border border-gray-100 ring-1 ring-black/5">
-                      <div className="px-4 py-2 border-b border-gray-100">
-                        <p className="text-xs text-gray-500 font-bold uppercase truncate">
-                          {user.email}
-                        </p>
+                // 🔒 SECURE CHECK: If not secure, show Verify Button instead of Profile
+                !isSecureSession ? (
+                  <Link href="/auth/verify-2fa">
+                    <Button
+                      variant="white"
+                      className="font-bold px-6 bg-orange-100 text-orange-700 hover:bg-orange-200 border-2 border-orange-200"
+                      rounded="full"
+                    >
+                      <ShieldAlert className="w-4 h-4 mr-2" /> Verify Login
+                    </Button>
+                  </Link>
+                ) : (
+                  <div className="relative" ref={dropdownRef}>
+                    <button
+                      onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                      className="group flex items-center gap-3 p-1.5 pr-4 rounded-full hover:bg-white/10 transition-all duration-300 border border-transparent hover:border-white/20 cursor-pointer"
+                    >
+                      <div className="flex flex-col items-end mr-2">
+                        <span className="text-sm font-bold leading-none group-hover:text-blue-200 max-w-[120px] truncate">
+                          {name}
+                        </span>
+                        <span className="text-[10px] text-blue-200 uppercase tracking-wider group-hover:text-white">
+                          Member
+                        </span>
                       </div>
-                      <Link
-                        href="/profile"
-                        className="flex items-center gap-2 px-4 py-2.5 hover:bg-blue-50 text-sm font-medium text-gray-700"
-                        onClick={() => setIsDropdownOpen(false)}
-                      >
-                        <Settings className="w-4 h-4" /> Settings
-                      </Link>
-                      <Link
-                        href="/dashboard"
-                        className="flex items-center gap-2 px-4 py-2.5 hover:bg-blue-50 text-sm font-medium text-gray-700"
-                        onClick={() => setIsDropdownOpen(false)}
-                      >
-                        <LayoutDashboard className="w-4 h-4" /> My Dashboard
-                      </Link>
-                      <div className="border-t border-gray-100 mt-1"></div>
-                      <button
-                        onClick={handleSignOut}
-                        className="w-full flex items-center gap-2 text-left px-4 py-2.5 hover:bg-red-50 text-sm font-medium text-red-600 transition-colors"
-                      >
-                        <LogOut className="w-4 h-4" /> Sign Out
-                      </button>
-                    </div>
-                  )}
-                </div>
+                      <div className="h-10 w-10 rounded-full bg-white border-2 border-blue-200 flex items-center justify-center overflow-hidden shadow-sm transition-transform duration-300 group-hover:scale-110">
+                        <UserIcon className="w-6 h-6 text-[#0A1A44]" />
+                      </div>
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {isDropdownOpen && (
+                      <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl py-2 text-gray-800 animate-in fade-in zoom-in duration-200 border border-gray-100 ring-1 ring-black/5">
+                        <div className="px-4 py-2 border-b border-gray-100">
+                          <p className="text-xs text-gray-500 font-bold uppercase truncate">
+                            {user.email}
+                          </p>
+                        </div>
+                        <Link
+                          href="/profile"
+                          className="flex items-center gap-2 px-4 py-2.5 hover:bg-blue-50 text-sm font-medium text-gray-700"
+                          onClick={() => setIsDropdownOpen(false)}
+                        >
+                          <Settings className="w-4 h-4" /> Settings
+                        </Link>
+                        <Link
+                          href="/dashboard"
+                          className="flex items-center gap-2 px-4 py-2.5 hover:bg-blue-50 text-sm font-medium text-gray-700"
+                          onClick={() => setIsDropdownOpen(false)}
+                        >
+                          <LayoutDashboard className="w-4 h-4" /> My Dashboard
+                        </Link>
+                        <div className="border-t border-gray-100 mt-1"></div>
+                        <button
+                          onClick={handleSignOut}
+                          className="w-full flex items-center gap-2 text-left px-4 py-2.5 hover:bg-red-50 text-sm font-medium text-red-600 transition-colors"
+                        >
+                          <LogOut className="w-4 h-4" /> Sign Out
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
               ) : (
                 <Link href="/login">
                   <Button
@@ -276,38 +330,53 @@ export default function Navbar({
 
             <div className="mt-auto border-t border-white/20 pt-6">
               {user ? (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-4 px-2 mb-6">
-                    <div className="h-12 w-12 rounded-full bg-white flex items-center justify-center text-[#0A1A44]">
-                      <UserIcon className="w-7 h-7" />
-                    </div>
-                    <div>
-                      <p className="text-lg font-bold">Hi, {name}</p>
-                      <p className="text-sm text-blue-300">{user.email}</p>
-                    </div>
-                  </div>
-
+                // 🔒 SECURE CHECK FOR MOBILE
+                !isSecureSession ? (
                   <Link
-                    href="/dashboard"
+                    href="/auth/verify-2fa"
                     onClick={() => setIsMobileMenuOpen(false)}
                   >
                     <Button
-                      className="w-full justify-start gap-3 bg-white/10 hover:bg-white/20 text-white mb-3"
+                      className="w-full justify-start gap-3 bg-orange-500/20 hover:bg-orange-500/30 text-orange-200 border border-orange-500/30 mb-3"
                       size="lg"
                     >
-                      <LayoutDashboard className="w-5 h-5" /> My Dashboard
+                      <ShieldAlert className="w-5 h-5" /> Complete Login (2FA)
                     </Button>
                   </Link>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4 px-2 mb-6">
+                      <div className="h-12 w-12 rounded-full bg-white flex items-center justify-center text-[#0A1A44]">
+                        <UserIcon className="w-7 h-7" />
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold">Hi, {name}</p>
+                        <p className="text-sm text-blue-300">{user.email}</p>
+                      </div>
+                    </div>
 
-                  <button onClick={handleSignOut} className="w-full">
-                    <Button
-                      className="w-full justify-start gap-3 bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/30"
-                      size="lg"
+                    <Link
+                      href="/dashboard"
+                      onClick={() => setIsMobileMenuOpen(false)}
                     >
-                      <LogOut className="w-5 h-5" /> Sign Out
-                    </Button>
-                  </button>
-                </div>
+                      <Button
+                        className="w-full justify-start gap-3 bg-white/10 hover:bg-white/20 text-white mb-3"
+                        size="lg"
+                      >
+                        <LayoutDashboard className="w-5 h-5" /> My Dashboard
+                      </Button>
+                    </Link>
+
+                    <button onClick={handleSignOut} className="w-full">
+                      <Button
+                        className="w-full justify-start gap-3 bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/30"
+                        size="lg"
+                      >
+                        <LogOut className="w-5 h-5" /> Sign Out
+                      </Button>
+                    </button>
+                  </div>
+                )
               ) : (
                 <Link href="/login" onClick={() => setIsMobileMenuOpen(false)}>
                   <Button

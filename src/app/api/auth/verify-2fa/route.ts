@@ -55,12 +55,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: verifyData, error: verifyError } =
-      await supabase.auth.mfa.verify({
-        factorId: totpFactor.id,
-        challengeId: challengeData.id,
-        code: code,
-      });
+    // Fix: We don't need to store 'verifyData' since we don't use it.
+    // We just check for 'error'.
+    const { error: verifyError } = await supabase.auth.mfa.verify({
+      factorId: totpFactor.id,
+      challengeId: challengeData.id,
+      code: code,
+    });
 
     if (verifyError) {
       return NextResponse.json(

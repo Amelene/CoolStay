@@ -1,16 +1,15 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { ShieldCheck, ArrowLeft, Loader2, Lock } from "lucide-react";
+import { ShieldCheck, Loader2, Lock, LogOut } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
-import Navbar from "@/components/Navbar";
-import HomeFooter from "@/components/HomeFooter";
 import { AuthButton } from "@/components/auth/AuthButton";
 
 // Schema
@@ -24,9 +23,13 @@ const VerifySchema = z.object({
 
 type VerifyFormValues = z.infer<typeof VerifySchema>;
 
-export default function Verify2FAPage() {
+function Verify2FAContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get("return_to");
+
   const [loading, setLoading] = useState(false);
+  const [exitLoading, setExitLoading] = useState(false);
 
   const {
     register,
@@ -43,6 +46,7 @@ export default function Verify2FAPage() {
   const onSubmit = async (data: VerifyFormValues) => {
     setLoading(true);
     try {
+      // 1. Verify the 2FA Code
       const res = await fetch("/api/auth/verify-2fa", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -56,7 +60,35 @@ export default function Verify2FAPage() {
       }
 
       toast.success("Identity verified successfully!");
-      router.push("/admin/dashboard");
+
+      // 2. Determine Redirection Logic
+      if (returnTo) {
+        // A. If there is a specific return path, use it
+        router.replace(returnTo);
+      } else {
+        // B. If no return path (Direct Login), check Role to decide destination
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (user) {
+          const { data: dbUser } = await supabase
+            .from("users")
+            .select("role")
+            .eq("id", user.id)
+            .single();
+
+          if (dbUser?.role === "admin" || dbUser?.role === "front_desk") {
+            router.replace("/admin/dashboard");
+          } else {
+            router.replace("/dashboard");
+          }
+        } else {
+          // Fallback if session fetch fails weirdly
+          router.replace("/dashboard");
+        }
+      }
     } catch (error: unknown) {
       if (error instanceof Error) {
         toast.error(error.message);
@@ -68,30 +100,37 @@ export default function Verify2FAPage() {
     }
   };
 
+  const handleBackToLogin = async () => {
+    setExitLoading(true);
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout error", error);
+      router.push("/login");
+    }
+  };
+
   return (
-    <main className="relative min-h-screen flex flex-col font-sans text-slate-800">
+    <main className="relative min-h-screen flex flex-col items-center justify-center font-sans text-slate-800 bg-[#0A1A44]">
       {/* Background */}
       <div className="fixed inset-0 z-0">
         <Image
           src="/images/background/coolstaybg.png"
           alt="Background"
           fill
-          className="object-cover"
+          className="object-cover opacity-20"
           priority
         />
-        <div className="absolute inset-0 bg-[#0A1A44]/60 backdrop-blur-sm" />
+        <div className="absolute inset-0 bg-[#0A1A44]/80 backdrop-blur-sm" />
       </div>
 
-      <Navbar logoVariant="text" />
-
-      <div className="relative z-10 grow flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-white/20 overflow-hidden animate-in fade-in zoom-in duration-300">
-          {/* Header Section */}
+      <div className="relative z-10 w-full max-w-md p-4">
+        <div className="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-white/20 overflow-hidden animate-in fade-in zoom-in duration-300">
           <div className="bg-linear-to-r from-[#0A1A44] to-[#1e3a8a] p-8 text-center relative overflow-hidden">
-            {/* Decorative Circles */}
             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-400/10 rounded-full -mr-10 -mt-10" />
             <div className="absolute bottom-0 left-0 w-24 h-24 bg-blue-400/10 rounded-full -ml-10 -mb-10" />
-
             <div className="relative z-10 flex flex-col items-center">
               <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mb-4 border border-white/20 shadow-inner">
                 <ShieldCheck className="w-10 h-10 text-blue-200" />
@@ -100,12 +139,11 @@ export default function Verify2FAPage() {
                 Security Check
               </h1>
               <p className="text-blue-200 text-sm mt-1">
-                Two-Factor Authentication
+                Please complete your login
               </p>
             </div>
           </div>
 
-          {/* Form Section */}
           <div className="p-8 pt-10">
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
               <div className="space-y-4">
@@ -124,15 +162,7 @@ export default function Verify2FAPage() {
                     maxLength={6}
                     placeholder="000000"
                     autoFocus
-                    className={`
-                            w-full pl-12 pr-4 py-4 text-center text-3xl font-mono font-bold tracking-[0.5em] 
-                            bg-slate-50 border-2 rounded-xl outline-none transition-all duration-300
-                            ${
-                              errors.code
-                                ? "border-red-300 focus:border-red-500 bg-red-50 text-red-600 placeholder-red-200"
-                                : "border-slate-200 focus:border-blue-600 focus:bg-white text-[#0A1A44] placeholder-slate-300"
-                            }
-                        `}
+                    className={`w-full pl-12 pr-4 py-4 text-center text-3xl font-mono font-bold tracking-[0.5em] bg-slate-50 border-2 rounded-xl outline-none transition-all duration-300 ${errors.code ? "border-red-300 focus:border-red-500 bg-red-50 text-red-600 placeholder-red-200" : "border-slate-200 focus:border-blue-600 focus:bg-white text-[#0A1A44] placeholder-slate-300"}`}
                     {...register("code", {
                       onChange: (e) => {
                         e.target.value = e.target.value.replace(/[^0-9]/g, "");
@@ -155,7 +185,7 @@ export default function Verify2FAPage() {
                 >
                   {loading ? (
                     <>
-                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                      <Loader2 className="w-5 h-5 animate-spin mr-2" />{" "}
                       Verifying...
                     </>
                   ) : (
@@ -165,19 +195,30 @@ export default function Verify2FAPage() {
 
                 <button
                   type="button"
-                  onClick={() => router.push("/login")}
-                  className="w-full py-2 text-center text-sm font-bold text-slate-400 hover:text-[#0A1A44] transition-colors flex items-center justify-center gap-2 group"
+                  onClick={handleBackToLogin}
+                  disabled={exitLoading}
+                  className="w-full py-3 text-center text-sm font-bold text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all flex items-center justify-center gap-2 group disabled:opacity-50"
                 >
-                  <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-                  Back to Login
+                  {exitLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <LogOut className="w-4 h-4" />
+                  )}
+                  Cancel & Sign Out
                 </button>
               </div>
             </form>
           </div>
         </div>
       </div>
-
-      <HomeFooter />
     </main>
+  );
+}
+
+export default function Verify2FAPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0A1A44]" />}>
+      <Verify2FAContent />
+    </Suspense>
   );
 }

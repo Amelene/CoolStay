@@ -6,10 +6,13 @@ export async function POST(request: Request) {
     const { email } = await request.json();
     const supabase = await createClient();
 
-    // The 'redirectTo' URL must point to a page that handles the password update
-    // We will create the /update-password page next
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${new URL(request.url).origin}/update-password`,
+    // Use signInWithOtp to send a one-time code (Passwordless Login flow)
+    // This is more reliable than magic links for password resets across devices
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: false, // Don't sign up new users, only allow existing
+      },
     });
 
     if (error) {

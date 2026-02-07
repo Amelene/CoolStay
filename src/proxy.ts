@@ -1,20 +1,24 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-// Define Role Permissions locally to ensure Edge Runtime compatibility
 const RESTRICTED_ADMIN_PATHS = {
-  // Routes restricted to 'admin' ONLY (Front Desk cannot see these)
   "/admin/inventory": ["admin"],
   "/admin/staff": ["admin"],
   "/admin/reports": ["admin"],
   "/admin/security": ["admin"],
   "/admin/promotions": ["admin"],
   "/admin/activity-logs": ["admin"],
-  // Add any other super-admin only routes here
 };
 
+const PROTECTED_PATHS = [
+  "/dashboard",
+  "/profile",
+  "/admin",
+  "/api/bookings",
+  "/api/admin",
+];
+
 export async function proxy(request: NextRequest) {
-  // 1. Initialize Response
   let response = NextResponse.next({
     request: { headers: request.headers },
   });
@@ -29,36 +33,73 @@ export async function proxy(request: NextRequest) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
+            request.cookies.set(name, value),
           );
           response = NextResponse.next({
             request: { headers: request.headers },
           });
           cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
+            response.cookies.set(name, value, options),
           );
         },
       },
-    }
+    },
   );
 
-  // 2. Get the Auth User
+  const createRedirect = (path: string, searchParams?: URLSearchParams) => {
+    const url = new URL(path, request.url);
+    if (searchParams) {
+      searchParams.forEach((val, key) => url.searchParams.set(key, val));
+    }
+    const redirectResponse = NextResponse.redirect(url);
+    const cookiesToSet = response.cookies.getAll();
+    cookiesToSet.forEach((cookie) => {
+      redirectResponse.cookies.set(cookie.name, cookie.value, cookie);
+    });
+    return redirectResponse;
+  };
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // 3. PROTECTED ROUTE CHECK: /admin
-  if (request.nextUrl.pathname.startsWith("/admin")) {
-    // A. Not Logged In -> Go to Login
+  const path = request.nextUrl.pathname;
+  const isProtected = PROTECTED_PATHS.some((p) => path.startsWith(p));
+
+  // --- 1. PROTECTED ROUTE CHECKS ---
+  if (isProtected) {
+    // A. Not Logged In
     if (!user) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/login";
-      url.searchParams.set("return_to", request.nextUrl.pathname); // Updated param name to match your login page
-      return NextResponse.redirect(url);
+      if (path.startsWith("/api")) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      const params = new URLSearchParams();
+      params.set("return_to", path);
+      return createRedirect("/login", params);
     }
 
-    // B. Logged In -> Fetch User Role
-    // We select 'role' specifically.
+    // B. MFA CHECK
+    const { data: mfaData } =
+      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+    if (
+      mfaData &&
+      mfaData.currentLevel === "aal1" &&
+      mfaData.nextLevel === "aal2"
+    ) {
+      if (path.startsWith("/api")) {
+        return NextResponse.json(
+          { error: "2FA Verification Required" },
+          { status: 403 },
+        );
+      }
+      const params = new URLSearchParams();
+      params.set("return_to", path);
+      return createRedirect("/auth/verify-2fa", params);
+    }
+
+    // --- C. ROLE ENFORCEMENT (New Logic) ---
+    // Fetch role once for all checks
     const { data: dbUser } = await supabase
       .from("users")
       .select("role")
@@ -66,40 +107,35 @@ export async function proxy(request: NextRequest) {
       .single();
 
     const userRole = dbUser?.role || "user";
+    const isAdmin = userRole === "admin" || userRole === "front_desk";
 
-    // C. BLOCK REGULAR USERS
-    // If it's just a guest ('user'), kick them out of admin entirely.
-    if (userRole === "user") {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
+    // 1. ADMIN TRYING TO ACCESS USER DASHBOARD -> SEND TO ADMIN DASHBOARD
+    if (path.startsWith("/dashboard") && isAdmin) {
+      return createRedirect("/admin/dashboard");
     }
 
-    // D. ROLE-BASED ACCESS CONTROL (RBAC)
-    // We check if the current path is in our "Restricted List"
-    const currentPath = request.nextUrl.pathname;
+    // 2. USER TRYING TO ACCESS ADMIN AREA -> SEND TO USER DASHBOARD
+    if (path.startsWith("/admin")) {
+      if (!isAdmin) {
+        return createRedirect("/dashboard");
+      }
 
-    for (const [route, allowedRoles] of Object.entries(
-      RESTRICTED_ADMIN_PATHS
-    )) {
-      // If the user is trying to access a restricted route (e.g. /admin/security)
-      if (currentPath.startsWith(route)) {
-        // And their role is NOT in the allowed list
-        if (!allowedRoles.includes(userRole)) {
-          // Redirect them to a safe page (Admin Dashboard)
-          return NextResponse.redirect(
-            new URL("/admin/dashboard", request.url)
-          );
+      // 3. ADMIN RBAC (Fine-grained permissions)
+      for (const [route, allowedRoles] of Object.entries(
+        RESTRICTED_ADMIN_PATHS,
+      )) {
+        if (path.startsWith(route)) {
+          if (!allowedRoles.includes(userRole)) {
+            return createRedirect("/admin/dashboard");
+          }
         }
       }
     }
-
-    // If we pass all checks, allow access (for Admin or Front Desk on allowed routes)
   }
 
-  // 4. AUTH ROUTE CHECK: /login or /register
-  // If already logged in, redirect to the appropriate dashboard
-  if (["/login", "/register"].includes(request.nextUrl.pathname)) {
+  // --- 2. AUTH PAGE REDIRECTS ---
+  if (["/login", "/register"].includes(path)) {
     if (user) {
-      // Check role to decide where to send them
       const { data: dbUser } = await supabase
         .from("users")
         .select("role")
@@ -108,7 +144,7 @@ export async function proxy(request: NextRequest) {
 
       const target =
         dbUser?.role === "user" ? "/dashboard" : "/admin/dashboard";
-      return NextResponse.redirect(new URL(target, request.url));
+      return createRedirect(target);
     }
   }
 

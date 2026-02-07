@@ -2,11 +2,11 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 export async function authorizeAdmin(supabase: SupabaseClient) {
+  // 1. Get User
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // 1. Check if logged in
   if (!user) {
     return {
       error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
@@ -14,14 +14,37 @@ export async function authorizeAdmin(supabase: SupabaseClient) {
     };
   }
 
-  // 2. Check if Admin (Using your RPC function or Metadata)
-  // Ideally, use the RPC you had in staff/route.ts if it exists:
-  // const { data: isAdmin } = await supabase.rpc("is_admin");
+  // 2. 🚨 SECURITY CHECK: Enforce MFA (AAL2)
+  // Check the current assurance level of the session
+  const { data: mfaData, error: mfaError } =
+    await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
 
-  // FALLBACK: If you don't have the RPC set up yet, check app_metadata
-  // const isAdmin = user.app_metadata?.role === 'admin';
+  if (mfaError) {
+    return {
+      error: NextResponse.json(
+        { error: "Failed to verify security level" },
+        { status: 500 },
+      ),
+      user: null,
+    };
+  }
 
-  // For now, let's stick to your pattern from staff/route.ts:
+  // If the user *can* do MFA (nextLevel === 'aal2') but *hasn't* (currentLevel === 'aal1'), BLOCK THEM.
+  if (
+    mfaData &&
+    mfaData.currentLevel === "aal1" &&
+    mfaData.nextLevel === "aal2"
+  ) {
+    return {
+      error: NextResponse.json(
+        { error: "Security Check Required: Please complete 2FA" },
+        { status: 403 },
+      ),
+      user: null,
+    };
+  }
+
+  // 3. Check if Admin
   const { data: isAdmin } = await supabase.rpc("is_admin");
 
   if (!isAdmin) {
