@@ -1,4 +1,5 @@
 import { authorizeAdmin } from "@/lib/admin-auth";
+import { sendBookingConfirmationEmailWithRetry } from "@/lib/email-service";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
@@ -43,14 +44,24 @@ export async function PATCH(request: Request) {
     const body = await request.json();
     const { id, status } = body;
 
+    // Fetch booking with full details for email
     const { data: booking, error: fetchError } = await supabase
       .from("bookings")
-      .select("check_in_date, status")
+      .select(
+        `
+        *,
+        users (full_name, email, phone),
+        room_types (name)
+      `
+      )
       .eq("id", id)
       .single();
 
     if (fetchError || !booking)
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+
+    // Store old status to check if we're confirming
+    const oldStatus = booking.status;
 
     if (status === "checked_in") {
       const checkInDate = new Date(booking.check_in_date);
@@ -76,6 +87,35 @@ export async function PATCH(request: Request) {
       .single();
 
     if (error) throw error;
+
+    // 🔔 Send email notification when booking is confirmed
+    if (status === "confirmed" && oldStatus !== "confirmed") {
+      console.log("Booking confirmed, sending email notification...");
+      
+      // Send email asynchronously (don't block the response)
+      sendBookingConfirmationEmailWithRetry({
+        guestName: booking.users?.full_name || "Guest",
+        guestEmail: booking.users?.email || "",
+        roomName: booking.room_types?.name || "Room",
+        checkInDate: booking.check_in_date,
+        checkOutDate: booking.check_out_date,
+        adults: booking.adults || 1,
+        children: booking.children || 0,
+        infants: booking.infants || 0,
+        totalAmount: booking.total_amount,
+        bookingId: booking.id,
+        specialRequests: booking.special_requests,
+      }).then((result: { success: boolean; error?: string }) => {
+        if (result.success) {
+          console.log("✅ Confirmation email sent successfully");
+        } else {
+          console.error("❌ Failed to send confirmation email:", result.error);
+        }
+      }).catch((err: unknown) => {
+        console.error("❌ Email sending error:", err);
+      });
+    }
+
     return NextResponse.json(data);
   } catch (error: unknown) {
     console.error("Update Error:", error);
@@ -127,7 +167,7 @@ export async function POST(request: Request) {
 
     const { data: roomType } = await supabase
       .from("room_types")
-      .select("total_rooms")
+      .select("total_rooms, name")
       .eq("id", room_type_id)
       .single();
 
@@ -159,6 +199,40 @@ export async function POST(request: Request) {
       .single();
 
     if (error) throw error;
+
+    // 🔔 Send email notification for new confirmed booking
+    console.log("New booking created with confirmed status, sending email notification...");
+    
+    // Fetch user details for email
+    const { data: userProfile } = await supabase
+      .from("users")
+      .select("full_name, email")
+      .eq("id", user.id)
+      .single();
+
+    // Send email asynchronously (don't block the response)
+    sendBookingConfirmationEmailWithRetry({
+      guestName: userProfile?.full_name || "Guest",
+      guestEmail: userProfile?.email || user.email || "",
+      roomName: roomType?.name || "Room",
+      checkInDate: check_in_date,
+      checkOutDate: check_out_date,
+      adults: Number(adults) || 1,
+      children: Number(children) || 0,
+      infants: Number(infants) || 0,
+      totalAmount: total_amount,
+      bookingId: data.id,
+      specialRequests: special_requests,
+    }).then((result: { success: boolean; error?: string }) => {
+      if (result.success) {
+        console.log("✅ Confirmation email sent successfully");
+      } else {
+        console.error("❌ Failed to send confirmation email:", result.error);
+      }
+    }).catch((err: unknown) => {
+      console.error("❌ Email sending error:", err);
+    });
+
     return NextResponse.json(data);
   } catch (error: unknown) {
     console.error("Booking Creation Error:", error);
