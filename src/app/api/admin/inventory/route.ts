@@ -1,0 +1,60 @@
+import { authorizeAdmin } from "@/lib/admin-auth";
+import { createClient } from "@/lib/supabase/server";
+import { NextResponse } from "next/server";
+
+export async function GET() {
+  try {
+    const supabase = await createClient();
+
+    const { error: authError } = await authorizeAdmin(supabase);
+    if (authError) return authError;
+
+    const { data, error } = await supabase
+      .from("inventory_supplies")
+      .select("*")
+      .order("category", { ascending: true })
+      .order("item_name", { ascending: true });
+
+    if (error) throw error;
+    return NextResponse.json(data);
+  } catch (error: unknown) {
+    // ✅ Fix: Use 'unknown' and safely access message
+    const message =
+      error instanceof Error ? error.message : "An unknown error occurred";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const supabase = await createClient();
+
+    const { error: authError } = await authorizeAdmin(supabase);
+    if (authError) return authError;
+
+    const body = await request.json();
+    const { item_name, category, min_stock, unit, cost } = body;
+
+    const { data, error } = await supabase
+      .from("inventory_supplies")
+      .insert({
+        item_name,
+        category,
+        minimum_stock: min_stock || 10,
+        current_stock: 0,
+        unit: unit || "pcs",
+        cost_per_unit: cost || 0,
+        last_restocked: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return NextResponse.json(data);
+  } catch (error: unknown) {
+    // ✅ Fix: Use 'unknown' and safely access message
+    const message =
+      error instanceof Error ? error.message : "An unknown error occurred";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
