@@ -1,7 +1,10 @@
 /**
  * Email Service for CoolStay Resort
  * Handles sending booking confirmation emails via Supabase Edge Function (Brevo)
+ * Matches the mobile app's email service implementation
  */
+
+import { createClient } from "@supabase/supabase-js";
 
 interface BookingEmailData {
   guestName: string;
@@ -21,10 +24,12 @@ interface EmailResponse {
   success: boolean;
   message?: string;
   error?: string;
+  messageId?: string;
 }
 
 /**
  * Send booking confirmation email via Supabase Edge Function
+ * Uses supabase.functions.invoke() like the mobile app
  * @param bookingData - The booking information to send
  * @returns Promise with success status
  */
@@ -32,36 +37,29 @@ export async function sendBookingConfirmationEmail(
   bookingData: BookingEmailData
 ): Promise<EmailResponse> {
   try {
-    // Calculate number of nights
-    const checkIn = new Date(bookingData.checkInDate);
-    const checkOut = new Date(bookingData.checkOutDate);
-    const nights = Math.ceil(
-      (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)
-    );
-
     // Format dates for email
-    const formattedCheckIn = checkIn.toLocaleDateString("en-US", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-    const formattedCheckOut = checkOut.toLocaleDateString("en-US", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
+    const formatDate = (dateStr: string) => {
+      try {
+        return new Date(dateStr).toLocaleDateString("en-US", {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        });
+      } catch (error) {
+        return "N/A";
+      }
+    };
 
-    // Prepare email payload matching Supabase Edge Function format
-    const emailPayload = {
+    // Prepare email payload matching mobile app format
+    const emailData = {
       userEmail: bookingData.guestEmail,
       userName: bookingData.guestName,
-      bookingType: "room", // or "cottage" depending on room type
+      bookingType: "room",
       itemName: bookingData.roomName,
-      checkInDate: formattedCheckIn,
-      checkOutDate: formattedCheckOut,
-      guestsCount: `${bookingData.adults} Adult(s), ${bookingData.children} Child(ren)${bookingData.infants > 0 ? `, ${bookingData.infants} Infant(s)` : ''}`,
+      checkInDate: formatDate(bookingData.checkInDate),
+      checkOutDate: formatDate(bookingData.checkOutDate),
+      guestsCount: `${bookingData.adults} Adult(s), ${bookingData.children} Child(ren)${bookingData.infants > 0 ? `, ${bookingData.infants} Infant(s)` : ""}`,
       totalAmount: `₱${bookingData.totalAmount.toLocaleString()}`,
       bookingDate: new Date().toLocaleDateString("en-US", {
         year: "numeric",
@@ -76,54 +74,54 @@ export async function sendBookingConfirmationEmail(
     console.log("📧 ========================================");
     console.log("📧 SENDING BOOKING CONFIRMATION EMAIL");
     console.log("📧 ========================================");
-    console.log("📧 To:", bookingData.guestEmail);
+    console.log("📧 Recipient:", bookingData.guestEmail);
     console.log("📧 Guest:", bookingData.guestName);
     console.log("📧 Room:", bookingData.roomName);
-    console.log("📧 Check-in:", formattedCheckIn);
-    console.log("📧 Check-out:", formattedCheckOut);
-    console.log("📧 Nights:", nights);
-    console.log("📧 Guests:", `${bookingData.adults} adults, ${bookingData.children} children, ${bookingData.infants} infants`);
-    console.log("📧 Total Amount: ₱", bookingData.totalAmount.toLocaleString());
-    console.log("📧 Booking ID:", bookingData.bookingId);
+    console.log("📧 Booking type: room");
+    console.log("📧 Payload:", JSON.stringify(emailData, null, 2));
     console.log("📧 ========================================");
 
-    // Call Supabase Edge Function
-    console.log("📧 Calling Supabase Edge Function...");
-    const response = await fetch(
-      "https://flpudkhcaesncvfsioqx.supabase.co/functions/v1/send-booking-email",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-        },
-        body: JSON.stringify(emailPayload),
-      }
+    // Create Supabase client with service role key
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    console.log("📧 Response Status:", response.status, response.statusText);
+    // Call Supabase Edge Function using functions.invoke()
+    console.log("📧 Calling Supabase Edge Function: send-booking-email");
+    const { data, error } = await supabase.functions.invoke("send-booking-email", {
+      body: emailData,
+    });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ EMAIL SERVICE ERROR:");
-      console.error("❌ Status:", response.status);
-      console.error("❌ Error:", errorText);
+    if (error) {
+      console.error("❌ SUPABASE FUNCTION ERROR:");
+      console.error("❌", error);
       console.error("❌ ========================================");
       return {
         success: false,
-        error: `Email service returned ${response.status}: ${errorText}`,
+        error: error.message || "Supabase function error",
       };
     }
 
-    const result = await response.json();
-    console.log("✅ EMAIL SENT SUCCESSFULLY!");
-    console.log("✅ Response:", JSON.stringify(result, null, 2));
-    console.log("✅ ========================================");
-
-    return {
-      success: true,
-      message: "Booking confirmation email sent successfully",
-    };
+    if (data && data.success) {
+      console.log("✅ EMAIL SENT SUCCESSFULLY!");
+      console.log("✅ Message ID:", data.messageId);
+      console.log("✅ Response:", JSON.stringify(data, null, 2));
+      console.log("✅ ========================================");
+      return {
+        success: true,
+        message: "Confirmation email sent successfully",
+        messageId: data.messageId,
+      };
+    } else {
+      console.error("❌ EMAIL SENDING FAILED:");
+      console.error("❌", data);
+      console.error("❌ ========================================");
+      return {
+        success: false,
+        error: data?.error || "Failed to send email",
+      };
+    }
   } catch (error) {
     console.error("❌ ========================================");
     console.error("❌ EXCEPTION WHILE SENDING EMAIL:");
