@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import { Button } from "@/components/ui/Button";
-import Image from "next/image";
 import EventInquiryModal from "@/components/EventInquiryModal";
+import Footer from "@/components/Footer";
+import Navbar from "@/components/Navbar";
+import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/client"; // Import Supabase
 import { User } from "@supabase/supabase-js"; // Import User Type
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 export default function EventsPage() {
+  const router = useRouter();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
@@ -75,7 +77,13 @@ export default function EventsPage() {
             <div className="space-y-6">
               <div className="mb-8">
                 <Button
-                  onClick={() => setIsModalOpen(true)}
+                  onClick={() => {
+                    if (!currentUser) {
+                      router.push(`/login?return_to=${encodeURIComponent('/events')}`);
+                      return;
+                    }
+                    setIsModalOpen(true);
+                  }}
                   className="bg-[#0A1A44] hover:bg-[#0A1A44]/90 text-white rounded-lg px-8 py-3 text-sm font-bold uppercase tracking-wider shadow-lg transform transition hover:scale-105"
                 >
                   Request for Proposal

@@ -1,55 +1,26 @@
 "use client";
 
-import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import Navbar from "@/components/Navbar";
+import { createClient } from "@/lib/supabase/client";
+import { Loader2 } from "lucide-react";
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-// Data for the different categories
+// Types
+interface Activity {
+  id: string;
+  name: string;
+  description: string;
+  price_per_person: number;
+  duration_minutes: number;
+  max_participants: number;
+  image_url: string;
+  is_active: boolean;
+}
+
+// Data for the other categories (dining, spa)
 const experienceContent = {
-  water: [
-    {
-      title: "Helmet Diving",
-      description: (
-        <>
-          <p>
-            Dive into an unforgettable experience with our Helmet Diving
-            adventure, where you can explore life 12 feet beneath the surface!
-            This activity is perfect for the entire family.
-          </p>
-          <p>
-            No need for advanced diving skills—if you can walk and breathe,
-            you&apos;re all set! It&apos;s that simple.
-          </p>
-          <p>
-            Helmet diving is a perfect basic step for those eyeing scuba diving
-            and other underwater activities in the future.
-          </p>
-        </>
-      ),
-      image:
-        "https://images.unsplash.com/photo-1544551763-46a013bb70d5?q=80&w=2070&auto=format&fit=crop",
-    },
-    {
-      title: "Wave Pool & Raging River",
-      description: (
-        <>
-          <p>
-            Experience the thrill of the ocean right here at CoolStay. Our
-            signature Wave Pool generates distinct wave patterns, from gentle
-            rollers to exciting diamond waves, simulating a true beach vibe.
-          </p>
-          <p>
-            Looking for relaxation? Grab a floater and let the current take you
-            away on our Raging River, winding through the scenic landscape of
-            the resort.
-          </p>
-        </>
-      ),
-      image:
-        "https://images.unsplash.com/photo-1506665531195-3566af2b4dfa?q=80&w=2070&auto=format&fit=crop",
-    },
-  ],
   dining: [
     {
       title: "The Horizon Bistro",
@@ -131,6 +102,32 @@ type TabKey = "water" | "dining" | "spa";
 
 export default function ExperiencePage() {
   const [activeTab, setActiveTab] = useState<TabKey>("water");
+  const [waterActivities, setWaterActivities] = useState<Activity[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch water activities from database
+  useEffect(() => {
+    const fetchActivities = async () => {
+      setLoading(true);
+      try {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("activities")
+          .select("*")
+          .eq("is_active", true)
+          .order("name");
+
+        if (error) throw error;
+        setWaterActivities(data || []);
+      } catch (error) {
+        console.error("Error fetching activities:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchActivities();
+  }, []);
 
   return (
     <main className="min-h-screen bg-[#CBE4F9]">
@@ -191,32 +188,84 @@ export default function ExperiencePage() {
 
         {/* 3. Dynamic Content */}
         <div className="space-y-8">
-          {experienceContent[activeTab].map((item, index) => (
-            <div
-              key={index}
-              className="bg-[#90C8EF] rounded-3xl p-6 md:p-8 shadow-md flex flex-col md:flex-row gap-8 items-center border-2 border-[#0077B6]"
-            >
-              {/* Left: Image */}
-              <div className="w-full md:w-1/3 relative h-64 rounded-2xl overflow-hidden shadow-lg border-2 border-white/20">
-                <Image
-                  src={item.image}
-                  alt={item.title}
-                  fill
-                  className="object-cover"
-                />
-              </div>
+          {loading ? (
+            <div className="flex justify-center items-center py-20">
+              <Loader2 className="w-8 h-8 animate-spin text-[#0077B6]" />
+            </div>
+          ) : activeTab === "water" ? (
+            // Water Activities from Database
+            waterActivities.length > 0 ? (
+              waterActivities.map((activity) => (
+                <div
+                  key={activity.id}
+                  className="bg-[#90C8EF] rounded-3xl p-6 md:p-8 shadow-md flex flex-col md:flex-row gap-8 items-center border-2 border-[#0077B6]"
+                >
+                  {/* Left: Image */}
+                  <div className="w-full md:w-1/3 relative h-64 rounded-2xl overflow-hidden shadow-lg border-2 border-white/20">
+                    <Image
+                      src={activity.image_url}
+                      alt={activity.name}
+                      fill
+                      className="object-cover"
+                    />
+                  </div>
 
-              {/* Right: Text */}
-              <div className="flex-1 text-[#0A1A44] space-y-4">
-                <h2 className="text-3xl font-serif font-bold uppercase tracking-wider">
-                  {item.title}
-                </h2>
-                <div className="space-y-4 text-sm md:text-base font-medium leading-relaxed opacity-90">
-                  {item.description}
+                  {/* Right: Text */}
+                  <div className="flex-1 text-[#0A1A44] space-y-4">
+                    <h2 className="text-3xl font-serif font-bold uppercase tracking-wider">
+                      {activity.name}
+                    </h2>
+                    <div className="space-y-4 text-sm md:text-base font-medium leading-relaxed opacity-90">
+                      <p>{activity.description}</p>
+                      <div className="flex flex-wrap gap-4 text-sm">
+                        <span className="bg-white/50 px-4 py-2 rounded-lg font-bold">
+                          ₱{activity.price_per_person.toLocaleString()} per person
+                        </span>
+                        <span className="bg-white/50 px-4 py-2 rounded-lg font-bold">
+                          {activity.duration_minutes} minutes
+                        </span>
+                        <span className="bg-white/50 px-4 py-2 rounded-lg font-bold">
+                          Max {activity.max_participants} participants
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-20 text-[#0A1A44]">
+                <p className="text-lg font-medium">No water activities available at the moment.</p>
+              </div>
+            )
+          ) : (
+            // Other categories (dining, spa) - hardcoded content
+            experienceContent[activeTab].map((item, index) => (
+              <div
+                key={index}
+                className="bg-[#90C8EF] rounded-3xl p-6 md:p-8 shadow-md flex flex-col md:flex-row gap-8 items-center border-2 border-[#0077B6]"
+              >
+                {/* Left: Image */}
+                <div className="w-full md:w-1/3 relative h-64 rounded-2xl overflow-hidden shadow-lg border-2 border-white/20">
+                  <Image
+                    src={item.image}
+                    alt={item.title}
+                    fill
+                    className="object-cover"
+                  />
+                </div>
+
+                {/* Right: Text */}
+                <div className="flex-1 text-[#0A1A44] space-y-4">
+                  <h2 className="text-3xl font-serif font-bold uppercase tracking-wider">
+                    {item.title}
+                  </h2>
+                  <div className="space-y-4 text-sm md:text-base font-medium leading-relaxed opacity-90">
+                    {item.description}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
 

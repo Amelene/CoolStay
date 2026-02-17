@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import RoomCard, { BookingData } from "@/components/Roomcard";
 import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/client";
+import { User } from "@supabase/supabase-js";
 import {
   Calendar as CalendarIcon,
   ChevronDown,
@@ -74,6 +75,18 @@ function AccommodationContent() {
   const [selectedRoom, setSelectedRoom] = useState<BookingData | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setCurrentUser(user);
+    };
+    checkUser();
+  }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -783,7 +796,13 @@ function AccommodationContent() {
                   priceDay={room.price_day}
                   priceNight={room.price_night}
                   priceOvernight={room.price_overnight}
-                  onBook={(roomData) => setSelectedRoom(roomData)}
+                  onBook={(roomData) => {
+                    if (!currentUser) {
+                      router.push(`/login?return_to=${encodeURIComponent('/accommodation')}`);
+                      return;
+                    }
+                    setSelectedRoom(roomData);
+                  }}
                   // ✅ Passing Props to Card
                   capacity={room.capacity}
                   rating={room.avg_rating}
