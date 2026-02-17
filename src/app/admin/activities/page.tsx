@@ -14,6 +14,7 @@ interface Activity {
   duration_minutes: number;
   max_participants: number;
   image_url: string;
+  category: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -182,7 +183,22 @@ export default function ActivityManagementPage() {
                 <h3 className="font-bold text-[#0A1A44] text-lg font-serif tracking-wide">
                   {activity.name}
                 </h3>
-                <div className="flex flex-wrap justify-center items-center gap-2 text-xs font-bold text-gray-500">
+                <div className="flex flex-wrap justify-center items-center gap-2 text-xs font-bold">
+                  <span
+                    className={`px-3 py-1 rounded-full ${
+                      activity.category === "water"
+                        ? "bg-cyan-100 text-cyan-700"
+                        : activity.category === "spa"
+                        ? "bg-pink-100 text-pink-700"
+                        : "bg-orange-100 text-orange-700"
+                    }`}
+                  >
+                    {activity.category === "water"
+                      ? "Water"
+                      : activity.category === "spa"
+                      ? "Spa"
+                      : "Restaurant"}
+                  </span>
                   <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full">
                     ₱{activity.price_per_person.toLocaleString()}/person
                   </span>

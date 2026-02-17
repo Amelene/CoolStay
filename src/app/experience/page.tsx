@@ -16,10 +16,17 @@ interface Activity {
   duration_minutes: number;
   max_participants: number;
   image_url: string;
+  category: string;
   is_active: boolean;
 }
 
-// Data for the other categories (dining, spa)
+// Removed hardcoded content - all data now comes from database
+const experienceContent = {
+  dining: [] as Activity[],
+  spa: [] as Activity[],
+};
+
+/* Old hardcoded content removed
 const experienceContent = {
   dining: [
     {
@@ -97,15 +104,16 @@ const experienceContent = {
     },
   ],
 };
+*/
 
 type TabKey = "water" | "dining" | "spa";
 
 export default function ExperiencePage() {
   const [activeTab, setActiveTab] = useState<TabKey>("water");
-  const [waterActivities, setWaterActivities] = useState<Activity[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch water activities from database
+  // Fetch all activities from database
   useEffect(() => {
     const fetchActivities = async () => {
       setLoading(true);
@@ -118,7 +126,7 @@ export default function ExperiencePage() {
           .order("name");
 
         if (error) throw error;
-        setWaterActivities(data || []);
+        setActivities(data || []);
       } catch (error) {
         console.error("Error fetching activities:", error);
       } finally {
@@ -128,6 +136,14 @@ export default function ExperiencePage() {
 
     fetchActivities();
   }, []);
+
+  // Filter activities by category
+  const filteredActivities = activities.filter((activity) => {
+    if (activeTab === "water") return activity.category === "water";
+    if (activeTab === "dining") return activity.category === "restaurant";
+    if (activeTab === "spa") return activity.category === "spa";
+    return false;
+  });
 
   return (
     <main className="min-h-screen bg-[#CBE4F9]">
@@ -192,10 +208,9 @@ export default function ExperiencePage() {
             <div className="flex justify-center items-center py-20">
               <Loader2 className="w-8 h-8 animate-spin text-[#0077B6]" />
             </div>
-          ) : activeTab === "water" ? (
-            // Water Activities from Database
-            waterActivities.length > 0 ? (
-              waterActivities.map((activity) => (
+          ) : filteredActivities.length > 0 ? (
+            // Activities from Database (filtered by category)
+            filteredActivities.map((activity) => (
                 <div
                   key={activity.id}
                   className="bg-[#90C8EF] rounded-3xl p-6 md:p-8 shadow-md flex flex-col md:flex-row gap-8 items-center border-2 border-[#0077B6]"
@@ -233,38 +248,14 @@ export default function ExperiencePage() {
                 </div>
               ))
             ) : (
-              <div className="text-center py-20 text-[#0A1A44]">
-                <p className="text-lg font-medium">No water activities available at the moment.</p>
-              </div>
-            )
-          ) : (
-            // Other categories (dining, spa) - hardcoded content
-            experienceContent[activeTab].map((item, index) => (
-              <div
-                key={index}
-                className="bg-[#90C8EF] rounded-3xl p-6 md:p-8 shadow-md flex flex-col md:flex-row gap-8 items-center border-2 border-[#0077B6]"
-              >
-                {/* Left: Image */}
-                <div className="w-full md:w-1/3 relative h-64 rounded-2xl overflow-hidden shadow-lg border-2 border-white/20">
-                  <Image
-                    src={item.image}
-                    alt={item.title}
-                    fill
-                    className="object-cover"
-                  />
-                </div>
-
-                {/* Right: Text */}
-                <div className="flex-1 text-[#0A1A44] space-y-4">
-                  <h2 className="text-3xl font-serif font-bold uppercase tracking-wider">
-                    {item.title}
-                  </h2>
-                  <div className="space-y-4 text-sm md:text-base font-medium leading-relaxed opacity-90">
-                    {item.description}
-                  </div>
-                </div>
-              </div>
-            ))
+            <div className="text-center py-20 text-[#0A1A44]">
+              <p className="text-lg font-medium">
+                No {activeTab === "water" ? "water activities" : activeTab === "dining" ? "restaurant dining options" : "spa services"} available at the moment.
+              </p>
+              <p className="text-sm text-gray-500 mt-2">
+                Please check back later or contact us for more information.
+              </p>
+            </div>
           )}
         </div>
       </div>

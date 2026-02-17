@@ -37,6 +37,7 @@ export default function ActivityModal({
     duration_minutes: 60,
     max_participants: 10,
     image_url: "",
+    category: "water",
     is_active: true,
   });
 
@@ -50,6 +51,7 @@ export default function ActivityModal({
           duration_minutes: activityToEdit.duration_minutes,
           max_participants: activityToEdit.max_participants,
           image_url: activityToEdit.image_url || "",
+          category: (activityToEdit as any).category || "water",
           is_active: activityToEdit.is_active,
         });
       } else {
@@ -60,6 +62,7 @@ export default function ActivityModal({
           duration_minutes: 60,
           max_participants: 10,
           image_url: "",
+          category: "water",
           is_active: true,
         });
       }
@@ -156,6 +159,24 @@ export default function ActivityModal({
               className={inputClass}
               required
             />
+          </div>
+
+          {/* Category */}
+          <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+              Category
+            </label>
+            <select
+              name="category"
+              value={formData.category}
+              onChange={handleChange}
+              className={inputClass}
+              required
+            >
+              <option value="water">Water Activity</option>
+              <option value="spa">Spa</option>
+              <option value="restaurant">Restaurant Dining</option>
+            </select>
           </div>
 
           {/* Price and Duration */}
