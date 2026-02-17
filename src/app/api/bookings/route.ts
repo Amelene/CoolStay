@@ -1,3 +1,4 @@
+import { sendBookingConfirmationEmailWithRetry } from "@/lib/email-service";
 import { createClient } from "@/lib/supabase/server";
 import {
   createClient as createAdminClient,
@@ -186,6 +187,37 @@ export async function POST(request: Request) {
       .single();
 
     if (insertError) throw insertError;
+
+    // 6. Send confirmation email asynchronously (don't block the response)
+    const { data: userProfile } = await adminDb
+      .from("users")
+      .select("full_name, email")
+      .eq("id", user.id)
+      .single();
+
+    const { data: roomDetails } = await adminDb
+      .from("room_types")
+      .select("name")
+      .eq("id", room_type_id)
+      .single();
+
+    // Send email in background (don't await to avoid blocking)
+    sendBookingConfirmationEmailWithRetry({
+      guestName: userProfile?.full_name || "Guest",
+      guestEmail: userProfile?.email || user.email || "",
+      roomName: roomDetails?.name || "Room",
+      checkInDate: check_in,
+      checkOutDate: check_out,
+      adults: Number(adults) || 1,
+      children: Number(children) || 0,
+      infants: Number(infants) || 0,
+      totalAmount: calculatedTotal,
+      bookingId: data.id,
+      specialRequests: body.special_requests || "",
+    }).catch((emailError) => {
+      console.error("Failed to send booking confirmation email:", emailError);
+      // Don't fail the booking if email fails
+    });
 
     return NextResponse.json({ success: true, booking: data });
   } catch (error: unknown) {
