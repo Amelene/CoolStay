@@ -177,3 +177,109 @@ export async function sendBookingConfirmationEmailWithRetry(
     }
   );
 }
+
+/**
+ * Feedback Reply Email Data Interface
+ */
+interface FeedbackReplyEmailData {
+  guestName: string;
+  guestEmail: string;
+  originalFeedback: string;
+  rating: number;
+  adminReply: string;
+  roomName: string;
+}
+
+/**
+ * Send feedback reply notification email to guest
+ * Notifies guest when admin responds to their feedback
+ * @param replyData - The feedback reply information
+ * @returns Promise with success status
+ */
+export async function sendFeedbackReplyEmail(
+  replyData: FeedbackReplyEmailData
+): Promise<EmailResponse> {
+  try {
+    // Prepare email payload for feedback reply
+    const emailData = {
+      userEmail: replyData.guestEmail,
+      userName: replyData.guestName,
+      feedbackType: "reply",
+      roomName: replyData.roomName,
+      rating: replyData.rating,
+      originalFeedback: replyData.originalFeedback,
+      adminReply: replyData.adminReply,
+      replyDate: new Date().toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    };
+
+    console.log("💬 ========================================");
+    console.log("💬 SENDING FEEDBACK REPLY EMAIL");
+    console.log("💬 ========================================");
+    console.log("💬 Recipient:", replyData.guestEmail);
+    console.log("💬 Guest:", replyData.guestName);
+    console.log("💬 Room:", replyData.roomName);
+    console.log("💬 Rating:", replyData.rating);
+    console.log("💬 Payload:", JSON.stringify(emailData, null, 2));
+    console.log("💬 ========================================");
+
+    // Create Supabase client with service role key
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    // Call Supabase Edge Function for feedback reply email
+    console.log("💬 Calling Supabase Edge Function: send-feedback-reply-email");
+    const { data, error } = await supabase.functions.invoke(
+      "send-feedback-reply-email",
+      {
+        body: emailData,
+      }
+    );
+
+    if (error) {
+      console.error("❌ SUPABASE FUNCTION ERROR:");
+      console.error("❌", error);
+      console.error("❌ ========================================");
+      return {
+        success: false,
+        error: error.message || "Supabase function error",
+      };
+    }
+
+    if (data && data.success) {
+      console.log("✅ FEEDBACK REPLY EMAIL SENT SUCCESSFULLY!");
+      console.log("✅ Message ID:", data.messageId);
+      console.log("✅ Response:", JSON.stringify(data, null, 2));
+      console.log("✅ ========================================");
+      return {
+        success: true,
+        message: "Feedback reply email sent successfully",
+        messageId: data.messageId,
+      };
+    } else {
+      console.error("❌ EMAIL SENDING FAILED:");
+      console.error("❌", data);
+      console.error("❌ ========================================");
+      return {
+        success: false,
+        error: data?.error || "Failed to send feedback reply email",
+      };
+    }
+  } catch (error) {
+    console.error("❌ ========================================");
+    console.error("❌ EXCEPTION WHILE SENDING FEEDBACK REPLY EMAIL:");
+    console.error("❌", error);
+    console.error("❌ ========================================");
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+    };
+  }
+}

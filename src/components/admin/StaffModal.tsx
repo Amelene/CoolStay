@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { X, Loader2, ShieldAlert, Wand2 } from "lucide-react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { StaffSchema } from "@/lib/schemas";
-import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Loader2, ShieldAlert, Wand2, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
+import { z } from "zod";
 
 interface StaffMember {
   id?: number;
@@ -29,12 +29,31 @@ interface StaffModalProps {
   staffToEdit?: StaffMember | null;
 }
 
+// ✅ Minimum salary requirements per department
+const MIN_SALARY_BY_DEPT: Record<string, number> = {
+  "Front Desk": 12000,
+  "Housekeeping": 12000,
+  "Maintenance": 17000,
+  "Security": 12000,
+  "Management": 15000,
+};
+
 // ✅ UPDATED: Extend schema to override 'phone' with strict PH validation
 const StaffFormSchema = StaffSchema.extend({
   role: z.string().optional(),
   phone: z.string().regex(/^09\d{9}$/, {
     message: "Must be a valid 11-digit PH mobile number (e.g., 09xxxxxxxxx)",
   }),
+}).superRefine((data, ctx) => {
+  // ✅ Validate salary based on department
+  const minSalary = MIN_SALARY_BY_DEPT[data.department] || 12000;
+  if (data.salary < minSalary) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Minimum salary for ${data.department} is ₱${minSalary.toLocaleString()}`,
+      path: ["salary"],
+    });
+  }
 });
 
 type StaffFormValues = z.infer<typeof StaffFormSchema>;
@@ -79,12 +98,24 @@ export default function StaffModal({
   });
 
   const selectedRole = watch("role");
+  const selectedDepartment = watch("department");
+  const currentSalary = watch("salary") as number;
 
   useEffect(() => {
     if (selectedRole && !staffToEdit && ROLE_TO_DEPT[selectedRole]) {
       setValue("department", ROLE_TO_DEPT[selectedRole]);
     }
   }, [selectedRole, setValue, staffToEdit]);
+
+  // ✅ Auto-adjust salary when department changes if below minimum
+  useEffect(() => {
+    if (selectedDepartment && typeof currentSalary === 'number') {
+      const minSalary = MIN_SALARY_BY_DEPT[selectedDepartment] || 12000;
+      if (currentSalary < minSalary) {
+        setValue("salary", minSalary);
+      }
+    }
+  }, [selectedDepartment, currentSalary, setValue]);
 
   useEffect(() => {
     if (isOpen) {
@@ -393,9 +424,22 @@ export default function StaffModal({
               </label>
               <input
                 type="number"
-                {...register("salary")}
+                {...register("salary", {
+                  valueAsNumber: true,
+                })}
+                min={MIN_SALARY_BY_DEPT[selectedDepartment] || 12000}
                 className={inputClass(!!errors.salary)}
               />
+              {errors.salary && (
+                <p className="text-xs text-red-500 mt-1">
+                  {errors.salary.message as string}
+                </p>
+              )}
+              {!errors.salary && selectedDepartment && (
+                <p className="text-xs text-slate-400 mt-1">
+                  Min: ₱{MIN_SALARY_BY_DEPT[selectedDepartment]?.toLocaleString() || "12,000"}
+                </p>
+              )}
             </div>
           </div>
 

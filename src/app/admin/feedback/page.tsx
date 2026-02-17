@@ -2,8 +2,6 @@
 
 import {
   AlertCircle,
-  Archive,
-  ArchiveRestore,
   CheckCircle,
   Inbox,
   Loader2,
@@ -85,7 +83,6 @@ export default function GuestEngagementPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [filterRating, setFilterRating] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [showArchived, setShowArchived] = useState(false);
   const [replyModal, setReplyModal] = useState<{
     isOpen: boolean;
     feedback: Feedback | null;
@@ -116,25 +113,6 @@ export default function GuestEngagementPage() {
     setReplyModal({ isOpen: false, feedback: null });
   };
 
-  const handleArchiveToggle = async (id: string, currentStatus: string) => {
-    try {
-      const newStatus = currentStatus === "archived" ? "active" : "archived";
-      const res = await fetch("/api/admin/feedback", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status: newStatus }),
-      });
-
-      if (!res.ok) throw new Error("Failed to update status");
-
-      // Refresh feedback data
-      await fetchFeedback();
-    } catch (error) {
-      console.error("Error archiving feedback:", error);
-      alert("Failed to update feedback status");
-    }
-  };
-
   // --- DERIVED STATS ---
   const totalReviews = feedbackData.length;
   const averageRating =
@@ -159,13 +137,9 @@ export default function GuestEngagementPage() {
         ? item.rating === 5
         : filterRating === 1
         ? item.rating <= 2
-        : true; // "Critical" filter
-    
-    const matchesArchived = showArchived
-      ? item.status === "archived"
-      : item.status !== "archived";
+        : true;
 
-    return matchesSearch && matchesFilter && matchesArchived;
+    return matchesSearch && matchesFilter;
   });
 
   return (
@@ -248,28 +222,6 @@ export default function GuestEngagementPage() {
             {tab.label}
           </button>
         ))}
-        
-        {/* Archive Toggle */}
-        <button
-          onClick={() => setShowArchived(!showArchived)}
-          className={`ml-auto px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all border ${
-            showArchived
-              ? "bg-slate-600 text-white border-slate-600 shadow-md"
-              : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-          }`}
-        >
-          {showArchived ? (
-            <>
-              <ArchiveRestore className="w-3.5 h-3.5 inline mr-1" />
-              Show Active
-            </>
-          ) : (
-            <>
-              <Archive className="w-3.5 h-3.5 inline mr-1" />
-              Show Archived
-            </>
-          )}
-        </button>
       </div>
 
       {/* 4. Feedback Feed */}
@@ -302,7 +254,6 @@ export default function GuestEngagementPage() {
                 key={item.id}
                 review={item}
                 onReply={handleOpenReply}
-                onArchive={handleArchiveToggle}
               />
             ))}
           </div>
@@ -349,6 +300,9 @@ function ReplyModal({
           replyMessage: replyMessage.trim(),
           guestEmail: feedback.guestEmail,
           guestName: feedback.guestName,
+          originalFeedback: feedback.comment,
+          rating: feedback.rating,
+          roomName: feedback.targetName,
         }),
       });
 
@@ -356,7 +310,7 @@ function ReplyModal({
 
       if (!res.ok) throw new Error(data.error || "Failed to send reply");
 
-      alert("Reply saved successfully!");
+      alert("Reply sent successfully! The guest can now see your response in their dashboard.");
       
       onSuccess();
       onClose();
@@ -454,11 +408,9 @@ function ReplyModal({
 function FeedbackCard({
   review,
   onReply,
-  onArchive,
 }: {
   review: Feedback;
   onReply: (feedback: Feedback) => void;
-  onArchive: (id: string, status: string) => void;
 }) {
   // Dynamic Styling based on Rating
   const isPositive = review.rating >= 4;
@@ -547,24 +499,6 @@ function FeedbackCard({
               <Reply className="w-3.5 h-3.5" /> Reply
             </button>
           )}
-          <button
-            onClick={() => onArchive(review.id, review.status)}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${
-              review.status === "archived"
-                ? "bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
-                : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-600"
-            }`}
-          >
-            {review.status === "archived" ? (
-              <>
-                <ArchiveRestore className="w-3.5 h-3.5" /> Restore
-              </>
-            ) : (
-              <>
-                <Archive className="w-3.5 h-3.5" /> Archive
-              </>
-            )}
-          </button>
         </div>
       </div>
     </div>

@@ -121,7 +121,7 @@ export async function PATCH(request: Request) {
 // Send reply to guest
 export async function POST(request: Request) {
   try {
-    const { id, replyMessage, guestEmail, guestName } = await request.json();
+    const { id, replyMessage, guestEmail, guestName, originalFeedback, rating, roomName } = await request.json();
 
     if (!id || !replyMessage || !guestEmail) {
       return NextResponse.json(
@@ -153,8 +153,11 @@ export async function POST(request: Request) {
       );
     }
 
-    // Reply saved successfully - guest will see it on their side
     console.log("✅ Feedback reply saved successfully");
+
+    // Note: Guest will see the reply in their feedback/reviews section
+    // No email notification - reply is visible on user dashboard
+
     return NextResponse.json({
       success: true,
       message: "Reply saved successfully",

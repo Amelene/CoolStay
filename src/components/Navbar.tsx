@@ -1,23 +1,24 @@
 "use client";
 
-import Link from "next/link";
-import { Button } from "@/components/ui/Button";
-import Image from "next/image";
-import { useEffect, useState, useRef } from "react";
-import { createClient } from "@/lib/supabase/client";
-// ❌ REMOVED: unused 'useRouter'
-// ✅ FIX: Correct Import Path
 import { useAuth } from "@/components/auth/AuthProvider";
+import { Button } from "@/components/ui/Button";
+import { createClient } from "@/lib/supabase/client";
 import {
-  Menu,
-  X,
-  User as UserIcon,
-  LogOut,
+  Bell,
+  CheckCheck,
   LayoutDashboard,
+  Loader2,
+  LogOut,
+  Menu,
   Settings,
   ShieldAlert,
-  Loader2,
+  User as UserIcon,
+  X
 } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import NotificationDetailModal from "./NotificationDetailModal";
 
 interface NavbarProps {
   activePage?: string;
@@ -35,11 +36,27 @@ export default function Navbar({
   const name = user?.user_metadata?.full_name || "Member";
 
   const [isSecureSession, setIsSecureSession] = useState(true);
+  const [unreadReplies, setUnreadReplies] = useState(0);
 
   // States
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Array<{
+    id: string;
+    admin_reply: string;
+    replied_at: string;
+    rating: number;
+    comment: string;
+    is_read: boolean;
+    read_at: string | null;
+    room_types?: { name: string } | null;
+    Cottages?: { name: string } | null;
+  }>>([]);
+  const [selectedNotification, setSelectedNotification] = useState<typeof notifications[0] | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const notificationRef = useRef<HTMLDivElement>(null);
 
   // ✅ FIX: Moved security check logic INSIDE useEffect
   // This removes the "setState in effect" warning and simplifies dependencies
@@ -67,6 +84,50 @@ export default function Navbar({
     checkSecurityStatus();
   }, [user]); // Only re-run if 'user' changes
 
+  // Fetch notifications for admin replies
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      if (!user) return;
+
+      const supabase = createClient();
+      try {
+        const { data: reviews } = await supabase
+          .from("reviews")
+          .select("id, admin_reply, replied_at, rating, comment, is_read, read_at, room_types(name), Cottages(name)")
+          .eq("user_id", user.id)
+          .not("admin_reply", "is", null)
+          .order("replied_at", { ascending: false });
+
+        if (reviews) {
+          const formattedNotifications = reviews.map((r: any) => ({
+            id: r.id,
+            admin_reply: r.admin_reply,
+            replied_at: r.replied_at,
+            rating: r.rating,
+            comment: r.comment,
+            is_read: r.is_read || false,
+            read_at: r.read_at || null,
+            room_types: Array.isArray(r.room_types) && r.room_types.length > 0 ? r.room_types[0] : null,
+            Cottages: Array.isArray(r.Cottages) && r.Cottages.length > 0 ? r.Cottages[0] : null,
+          }));
+          setNotifications(formattedNotifications);
+          // Count only unread notifications
+          const unreadCount = formattedNotifications.filter(n => !n.is_read).length;
+          setUnreadReplies(unreadCount);
+        }
+      } catch (error) {
+        console.error("Failed to fetch notifications:", error);
+      }
+    };
+
+    if (user) {
+      fetchNotifications();
+      // Poll every 30 seconds for new replies
+      const interval = setInterval(fetchNotifications, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user]);
+
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -76,6 +137,12 @@ export default function Navbar({
       ) {
         setIsDropdownOpen(false);
       }
+      if (
+        notificationRef.current &&
+        !notificationRef.current.contains(event.target as Node)
+      ) {
+        setIsNotificationOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -84,6 +151,57 @@ export default function Navbar({
   const handleSignOut = async () => {
     setIsMobileMenuOpen(false);
     await signOut(); // Use the provider's signOut
+  };
+
+  const handleNotificationClick = async (notification: typeof notifications[0]) => {
+    // Mark as read
+    if (!notification.is_read) {
+      try {
+        const res = await fetch("/api/notifications", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notificationId: notification.id }),
+        });
+
+        if (res.ok) {
+          // Update local state
+          setNotifications(prev =>
+            prev.map(n =>
+              n.id === notification.id
+                ? { ...n, is_read: true, read_at: new Date().toISOString() }
+                : n
+            )
+          );
+          setUnreadReplies(prev => Math.max(0, prev - 1));
+        }
+      } catch (error) {
+        console.error("Failed to mark notification as read:", error);
+      }
+    }
+
+    // Open detail modal
+    setSelectedNotification(notification);
+    setIsDetailModalOpen(true);
+    setIsNotificationOpen(false);
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      const res = await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (res.ok) {
+        // Update all notifications to read
+        setNotifications(prev =>
+          prev.map(n => ({ ...n, is_read: true, read_at: new Date().toISOString() }))
+        );
+        setUnreadReplies(0);
+      }
+    } catch (error) {
+      console.error("Failed to mark all as read:", error);
+    }
   };
 
   const navLinks = [
@@ -181,55 +299,148 @@ export default function Navbar({
                     </Button>
                   </Link>
                 ) : (
-                  <div className="relative" ref={dropdownRef}>
-                    <button
-                      onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                      className="group flex items-center gap-3 p-1.5 pr-4 rounded-full hover:bg-white/10 transition-all duration-300 border border-transparent hover:border-white/20 cursor-pointer"
-                    >
-                      <div className="flex flex-col items-end mr-2">
-                        <span className="text-sm font-bold leading-none group-hover:text-blue-200 max-w-[120px] truncate">
-                          {name}
-                        </span>
-                        <span className="text-[10px] text-blue-200 uppercase tracking-wider group-hover:text-white">
-                          Member
-                        </span>
-                      </div>
-                      <div className="h-10 w-10 rounded-full bg-white border-2 border-blue-200 flex items-center justify-center overflow-hidden shadow-sm transition-transform duration-300 group-hover:scale-110">
-                        <UserIcon className="w-6 h-6 text-[#0A1A44]" />
-                      </div>
-                    </button>
+                  <div className="flex items-center gap-2">
+                    {/* Notification Bell */}
+                    <div className="relative" ref={notificationRef}>
+                      <button
+                        onClick={() => setIsNotificationOpen(!isNotificationOpen)}
+                        className="relative p-2 rounded-full hover:bg-white/10 transition-all duration-300 border border-transparent hover:border-white/20"
+                      >
+                        <Bell className="w-5 h-5 text-white" />
+                        {unreadReplies > 0 && (
+                          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
+                            {unreadReplies > 9 ? '9+' : unreadReplies}
+                          </span>
+                        )}
+                      </button>
 
-                    {/* Dropdown Menu */}
-                    {isDropdownOpen && (
-                      <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl py-2 text-gray-800 animate-in fade-in zoom-in duration-200 border border-gray-100 ring-1 ring-black/5">
-                        <div className="px-4 py-2 border-b border-gray-100">
-                          <p className="text-xs text-gray-500 font-bold uppercase truncate">
-                            {user.email}
-                          </p>
+                      {/* Notification Dropdown */}
+                      {isNotificationOpen && (
+                        <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl py-2 text-gray-800 animate-in fade-in zoom-in duration-200 border border-gray-100 ring-1 ring-black/5 max-h-96 overflow-y-auto">
+                          <div className="px-4 py-3 border-b border-gray-100">
+                            <div className="flex items-center justify-between mb-2">
+                              <h3 className="text-sm font-bold text-gray-900">Notifications</h3>
+                              {unreadReplies > 0 && (
+                                <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full font-bold">
+                                  {unreadReplies} new
+                                </span>
+                              )}
+                            </div>
+                            {unreadReplies > 0 && (
+                              <button
+                                onClick={handleMarkAllAsRead}
+                                className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors"
+                              >
+                                <CheckCheck className="w-3.5 h-3.5" />
+                                Mark all as read
+                              </button>
+                            )}
+                          </div>
+                          
+                          {notifications.length === 0 ? (
+                            <div className="px-4 py-8 text-center text-gray-500">
+                              <Bell className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                              <p className="text-sm">No replies yet</p>
+                            </div>
+                          ) : (
+                            <div className="divide-y divide-gray-100">
+                              {notifications.map((notif) => (
+                                <button
+                                  key={notif.id}
+                                  onClick={() => handleNotificationClick(notif)}
+                                  className={`w-full px-4 py-3 hover:bg-blue-50 transition-colors text-left ${
+                                    !notif.is_read ? 'bg-blue-50/50' : ''
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-2 mb-1">
+                                    {!notif.is_read && (
+                                      <div className="flex-shrink-0 w-2 h-2 bg-blue-600 rounded-full mt-1.5" />
+                                    )}
+                                    <div className="flex-shrink-0 w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
+                                      <span className="text-xs font-bold text-blue-600">
+                                        {notif.rating}★
+                                      </span>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className={`text-xs truncate ${
+                                        !notif.is_read ? 'font-bold text-gray-900' : 'font-medium text-gray-700'
+                                      }`}>
+                                        {notif.room_types?.name || notif.Cottages?.name || 'Your Review'}
+                                      </p>
+                                      <p className={`text-xs line-clamp-2 mt-1 ${
+                                        !notif.is_read ? 'text-gray-700' : 'text-gray-500'
+                                      }`}>
+                                        {notif.admin_reply}
+                                      </p>
+                                      <p className="text-[10px] text-gray-400 mt-1">
+                                        {new Date(notif.replied_at).toLocaleDateString('en-US', {
+                                          month: 'short',
+                                          day: 'numeric',
+                                          hour: '2-digit',
+                                          minute: '2-digit'
+                                        })}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <Link
-                          href="/profile"
-                          className="flex items-center gap-2 px-4 py-2.5 hover:bg-blue-50 text-sm font-medium text-gray-700"
-                          onClick={() => setIsDropdownOpen(false)}
-                        >
-                          <Settings className="w-4 h-4" /> Settings
-                        </Link>
-                        <Link
-                          href="/dashboard"
-                          className="flex items-center gap-2 px-4 py-2.5 hover:bg-blue-50 text-sm font-medium text-gray-700"
-                          onClick={() => setIsDropdownOpen(false)}
-                        >
-                          <LayoutDashboard className="w-4 h-4" /> My Dashboard
-                        </Link>
-                        <div className="border-t border-gray-100 mt-1"></div>
-                        <button
-                          onClick={handleSignOut}
-                          className="w-full flex items-center gap-2 text-left px-4 py-2.5 hover:bg-red-50 text-sm font-medium text-red-600 transition-colors"
-                        >
-                          <LogOut className="w-4 h-4" /> Sign Out
-                        </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
+
+                    {/* Profile Dropdown */}
+                    <div className="relative" ref={dropdownRef}>
+                      <button
+                        onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                        className="group flex items-center gap-3 p-1.5 pr-4 rounded-full hover:bg-white/10 transition-all duration-300 border border-transparent hover:border-white/20 cursor-pointer"
+                      >
+                        <div className="flex flex-col items-end mr-2">
+                          <span className="text-sm font-bold leading-none group-hover:text-blue-200 max-w-[120px] truncate">
+                            {name}
+                          </span>
+                          <span className="text-[10px] text-blue-200 uppercase tracking-wider group-hover:text-white">
+                            Member
+                          </span>
+                        </div>
+                        <div className="h-10 w-10 rounded-full bg-white border-2 border-blue-200 flex items-center justify-center overflow-hidden shadow-sm transition-transform duration-300 group-hover:scale-110">
+                          <UserIcon className="w-6 h-6 text-[#0A1A44]" />
+                        </div>
+                      </button>
+
+                      {/* Dropdown Menu */}
+                      {isDropdownOpen && (
+                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl py-2 text-gray-800 animate-in fade-in zoom-in duration-200 border border-gray-100 ring-1 ring-black/5">
+                          <div className="px-4 py-2 border-b border-gray-100">
+                            <p className="text-xs text-gray-500 font-bold uppercase truncate">
+                              {user.email}
+                            </p>
+                          </div>
+                          <Link
+                            href="/profile"
+                            className="flex items-center gap-2 px-4 py-2.5 hover:bg-blue-50 text-sm font-medium text-gray-700"
+                            onClick={() => setIsDropdownOpen(false)}
+                          >
+                            <Settings className="w-4 h-4" /> Settings
+                          </Link>
+                          <Link
+                            href="/dashboard"
+                            className="flex items-center gap-2 px-4 py-2.5 hover:bg-blue-50 text-sm font-medium text-gray-700"
+                            onClick={() => setIsDropdownOpen(false)}
+                          >
+                            <LayoutDashboard className="w-4 h-4" /> My Dashboard
+                          </Link>
+                          <div className="border-t border-gray-100 mt-1"></div>
+                          <button
+                            onClick={handleSignOut}
+                            className="w-full flex items-center gap-2 text-left px-4 py-2.5 hover:bg-red-50 text-sm font-medium text-red-600 transition-colors"
+                          >
+                            <LogOut className="w-4 h-4" /> Sign Out
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               ) : (
@@ -341,6 +552,18 @@ export default function Navbar({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Notification Detail Modal */}
+      {selectedNotification && (
+        <NotificationDetailModal
+          isOpen={isDetailModalOpen}
+          onClose={() => {
+            setIsDetailModalOpen(false);
+            setSelectedNotification(null);
+          }}
+          notification={selectedNotification}
+        />
       )}
     </nav>
   );
