@@ -10,9 +10,12 @@ export type UserRole = (typeof ROLES)[keyof typeof ROLES];
 export const ROUTE_PERMISSIONS: Record<string, UserRole[]> = {
   "/admin/dashboard": [ROLES.ADMIN, ROLES.FRONT_DESK],
   "/admin/rooms": [ROLES.ADMIN, ROLES.FRONT_DESK],
+  "/admin/activities": [ROLES.ADMIN, ROLES.FRONT_DESK],
   "/admin/customers": [ROLES.ADMIN, ROLES.FRONT_DESK],
   "/admin/billing": [ROLES.ADMIN, ROLES.FRONT_DESK],
   "/admin/inquiries": [ROLES.ADMIN, ROLES.FRONT_DESK],
+  "/admin/bookings": [ROLES.ADMIN, ROLES.FRONT_DESK],
+  "/admin/feedback": [ROLES.ADMIN, ROLES.FRONT_DESK],
   // Restricted Areas
   "/admin/inventory": [ROLES.ADMIN],
   "/admin/staff": [ROLES.ADMIN],

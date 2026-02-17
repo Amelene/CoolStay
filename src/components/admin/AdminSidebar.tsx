@@ -1,26 +1,26 @@
 "use client";
 
-import Link from "next/link";
+import { ROLES, hasAccess } from "@/lib/role_config"; // Added access check
+import { createClient } from "@/lib/supabase/client"; // Added client
+import {
+  BarChart3,
+  BedDouble,
+  CalendarCheck,
+  ClipboardList,
+  FileText,
+  History,
+  IdCard,
+  LayoutDashboard,
+  MessageSquare,
+  Package,
+  ShieldCheck,
+  UserCog,
+  Waves
+} from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react"; // Added hooks
-import { createClient } from "@/lib/supabase/client"; // Added client
-import { ROLES, hasAccess } from "@/lib/role_config"; // Added access check
-import {
-  CalendarCheck,
-  BedDouble,
-  UserCog,
-  IdCard,
-  FileText,
-  MessageSquare,
-  BarChart3,
-  Megaphone,
-  ShieldCheck,
-  ClipboardList,
-  Package,
-  History,
-  LayoutDashboard,
-} from "lucide-react";
 
 // Grouped Menu Structure
 const menuGroups = [
@@ -43,6 +43,7 @@ const menuGroups = [
         icon: CalendarCheck,
       },
       { name: "Room Availability", href: "/admin/rooms", icon: BedDouble },
+      { name: "Activity Management", href: "/admin/activities", icon: Waves },
       { name: "Inventory Management", href: "/admin/inventory", icon: Package },
       {
         name: "Event Inquiries",
