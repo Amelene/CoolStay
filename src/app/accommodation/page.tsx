@@ -1,26 +1,27 @@
 "use client";
 
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import { Button } from "@/components/ui/Button";
-import RoomCard, { BookingData } from "@/components/Roomcard";
 import BookRoomModal from "@/components/BookRoomModal";
-import Image from "next/image";
+import Footer from "@/components/Footer";
+import Navbar from "@/components/Navbar";
+import RoomCard, { BookingData } from "@/components/Roomcard";
+import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/client";
-import { useEffect, useState, Suspense, useRef } from "react";
-import { toast } from "sonner";
 import {
-  Loader2,
-  Search,
-  Users,
   Calendar as CalendarIcon,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Plus,
+  Loader2,
   Minus,
-  ChevronDown,
+  Plus,
+  Search,
+  Users,
+  X,
 } from "lucide-react";
-import { useSearchParams, useRouter } from "next/navigation";
+import Image from "next/image";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 // --- TYPES ---
 interface RoomType {
@@ -71,6 +72,8 @@ function AccommodationContent() {
   const guestMenuRef = useRef<HTMLDivElement>(null);
 
   const [selectedRoom, setSelectedRoom] = useState<BookingData | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
   useEffect(() => {
     const init = async () => {
@@ -649,17 +652,123 @@ function AccommodationContent() {
             </div>
           ) : (
             <>
-              <div className="flex justify-between items-end mb-6 px-2">
-                <h2 className="text-2xl font-serif font-bold text-[#0A1A44]">
+              {/* Header Row: Title + Search Bar */}
+              <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6 px-2">
+                <h2 className="text-2xl font-serif font-bold text-[#0A1A44] shrink-0">
                   {checkInDate && checkOutDate
                     ? "Available Rooms"
                     : "All Accommodations"}
                 </h2>
-                <span className="text-sm font-bold text-[#0077B6] bg-white px-3 py-1 rounded-full shadow-sm">
-                  {rooms.length} Results
+                
+                {/* Search Bar */}
+                <div className="w-full lg:max-w-md">
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search by room name..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-11 pr-10 py-3 bg-white border-2 border-slate-200 rounded-xl text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-[#0A1A44] focus:ring-2 focus:ring-[#0A1A44]/20 transition-all shadow-sm"
+                    />
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery("")}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Filter Buttons + Results Count */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 px-2">
+                <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => setCategoryFilter("all")}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
+                        categoryFilter === "all"
+                          ? "bg-[#0A1A44] text-white shadow-md"
+                          : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
+                      }`}
+                    >
+                      All
+                    </button>
+                    <button
+                      onClick={() => setCategoryFilter("room")}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
+                        categoryFilter === "room"
+                          ? "bg-[#0A1A44] text-white shadow-md"
+                          : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
+                      }`}
+                    >
+                      Rooms
+                    </button>
+                    <button
+                      onClick={() => setCategoryFilter("cottage")}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
+                        categoryFilter === "cottage"
+                          ? "bg-[#0A1A44] text-white shadow-md"
+                          : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
+                      }`}
+                    >
+                      Cottages
+                    </button>
+                    <button
+                      onClick={() => setCategoryFilter("event")}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
+                        categoryFilter === "event"
+                          ? "bg-[#0A1A44] text-white shadow-md"
+                          : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
+                      }`}
+                    >
+                      Events
+                    </button>
+                </div>
+                
+                <span className="text-sm font-bold text-[#0077B6] bg-white px-3 py-1 rounded-full shadow-sm shrink-0">
+                  {rooms.filter((room) => {
+                    // Category filter
+                    let matchesCategory = true;
+                    if (categoryFilter === "room") {
+                      matchesCategory = room.id.startsWith("rm_");
+                    } else if (categoryFilter === "cottage") {
+                      matchesCategory = room.id.startsWith("cot_");
+                    } else if (categoryFilter === "event") {
+                      matchesCategory = room.id.startsWith("evt_");
+                    }
+                    
+                    // Search filter
+                    const matchesSearch = searchQuery === "" || 
+                      room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      room.description.toLowerCase().includes(searchQuery.toLowerCase());
+                    
+                    return matchesCategory && matchesSearch;
+                  }).length} Results
                 </span>
               </div>
-              {rooms.map((room) => (
+              {rooms
+                .filter((room) => {
+                  // Category filter
+                  let matchesCategory = true;
+                  if (categoryFilter === "room") {
+                    matchesCategory = room.id.startsWith("rm_");
+                  } else if (categoryFilter === "cottage") {
+                    matchesCategory = room.id.startsWith("cot_");
+                  } else if (categoryFilter === "event") {
+                    matchesCategory = room.id.startsWith("evt_");
+                  }
+                  
+                  // Search filter
+                  const matchesSearch = searchQuery === "" || 
+                    room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    room.description.toLowerCase().includes(searchQuery.toLowerCase());
+                  
+                  return matchesCategory && matchesSearch;
+                })
+                .map((room) => (
                 <RoomCard
                   key={room.id}
                   id={room.id}

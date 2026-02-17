@@ -1,24 +1,25 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { AuthButton } from "@/components/auth/AuthButton";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import UserPaymentModal from "@/components/UserPaymentModal";
+import { createClient } from "@/lib/supabase/client";
 import {
-  Sun,
-  Moon,
+  Baby,
   BedDouble,
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  X,
-  Users,
-  Baby,
-  Plus,
-  Minus,
   Milk,
+  Minus,
+  Moon,
+  Plus,
+  Sun,
+  Users,
+  X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import React, { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 // --- TYPES ---
 export interface BookingData {
@@ -76,6 +77,13 @@ export default function BookRoomModal({
   const [infants, setInfants] = useState(initialInfants);
 
   const [error, setError] = useState<string | null>(null);
+
+  // Payment Modal State
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [createdBooking, setCreatedBooking] = useState<{
+    id: string;
+    total_amount: number;
+  } | null>(null);
 
   // Calendar UI State
   const [showCalendar, setShowCalendar] = useState(false);
@@ -228,9 +236,13 @@ export default function BookRoomModal({
       if (!response.ok)
         throw new Error(result.error || "Failed to complete booking.");
 
-      toast.success("Booking Request Sent!");
-      onClose();
-      router.push("/dashboard");
+      // ✅ Store booking data and open payment modal immediately
+      setCreatedBooking({
+        id: result.booking.id,
+        total_amount: result.booking.total_amount,
+      });
+      setShowPaymentModal(true);
+      toast.success("Booking created! Please complete payment.");
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);
@@ -322,8 +334,20 @@ export default function BookRoomModal({
     );
   };
 
+  const handlePaymentSuccess = () => {
+    setShowPaymentModal(false);
+    onClose();
+    router.push("/dashboard");
+  };
+
+  const handlePaymentClose = () => {
+    setShowPaymentModal(false);
+    // Keep booking modal open so user can see their booking details
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+    <>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
       <div className="relative w-full max-w-2xl bg-white rounded-3xl p-8 shadow-2xl overflow-visible">
         <button
           onClick={onClose}
@@ -583,6 +607,17 @@ export default function BookRoomModal({
           </div>
         </div>
       </div>
-    </div>
+      </div>
+
+      {/* Payment Modal */}
+      {showPaymentModal && createdBooking && (
+        <UserPaymentModal
+          isOpen={showPaymentModal}
+          onClose={handlePaymentClose}
+          booking={createdBooking}
+          onSuccess={handlePaymentSuccess}
+        />
+      )}
+    </>
   );
 }
