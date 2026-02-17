@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import React, { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 // --- TYPES ---
 type Feedback = {
@@ -310,13 +311,19 @@ function ReplyModal({
 
       if (!res.ok) throw new Error(data.error || "Failed to send reply");
 
-      alert("Reply sent successfully! The guest can now see your response in their dashboard.");
+      toast.success("Reply Sent Successfully!", {
+        description: `${feedback.guestName} will be notified and can view your response in their dashboard.`,
+        duration: 5000,
+      });
       
       onSuccess();
       onClose();
     } catch (error) {
       console.error("Error sending reply:", error);
-      alert("Failed to send reply. Please try again.");
+      toast.error("Failed to Send Reply", {
+        description: "Please check your connection and try again.",
+        duration: 4000,
+      });
     } finally {
       setIsSending(false);
     }
