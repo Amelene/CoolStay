@@ -1,23 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import {
-  History,
-  Search,
-  Loader2,
-  User,
-  ShieldAlert,
   CalendarClock,
+  History,
+  Loader2,
+  Search,
+  ShieldAlert,
+  User,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 interface ActivityLog {
   id: string;
   action: string;
   created_at: string;
   ip_address: string;
+  device_info: string;
   users: {
     full_name: string;
     email: string;
+    role: string;
   } | null;
 }
 
@@ -117,6 +119,16 @@ export default function ActivityLogsPage() {
                     <span className="flex items-center gap-1">
                       <User className="w-3 h-3" />
                       {log.users?.full_name || "System/Unknown"}
+                    </span>
+                    <span className="hidden sm:inline">•</span>
+                    <span className={`px-2 py-0.5 rounded-full font-medium ${
+                      log.users?.role === 'admin' 
+                        ? 'bg-purple-100 text-purple-700' 
+                        : log.users?.role === 'front_desk'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-gray-100 text-gray-700'
+                    }`}>
+                      Role: {log.users?.role || 'unknown'}
                     </span>
                     <span className="hidden sm:inline">•</span>
                     <span className="font-mono bg-slate-100 px-1.5 rounded">
