@@ -1,28 +1,37 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
 import {
-  MessageSquare,
-  Star,
-  Search,
-  Reply,
-  Inbox,
-  ThumbsUp,
   AlertCircle,
+  Archive,
+  ArchiveRestore,
+  CheckCircle,
+  Inbox,
   Loader2,
-  Quote,
   LucideIcon,
+  MessageSquare,
+  Quote,
+  Reply,
+  Search,
+  Send,
+  Star,
+  ThumbsUp,
+  X,
 } from "lucide-react";
+import React, { useEffect, useState } from "react";
 
 // --- TYPES ---
 type Feedback = {
   id: string;
   guestName: string;
+  guestEmail: string;
+  userId: string;
   targetName: string;
   rating: number;
   comment: string;
   date: string;
   status: string;
+  adminReply: string | null;
+  repliedAt: string | null;
 };
 
 interface StatCardProps {
@@ -76,22 +85,55 @@ export default function GuestEngagementPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [filterRating, setFilterRating] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [replyModal, setReplyModal] = useState<{
+    isOpen: boolean;
+    feedback: Feedback | null;
+  }>({ isOpen: false, feedback: null });
+
+  const fetchFeedback = async () => {
+    try {
+      const res = await fetch("/api/admin/feedback");
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+      setFeedbackData(data);
+    } catch (error) {
+      console.error("Error fetching feedback:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchFeedback = async () => {
-      try {
-        const res = await fetch("/api/admin/feedback");
-        if (!res.ok) throw new Error("Failed to fetch");
-        const data = await res.json();
-        setFeedbackData(data);
-      } catch (error) {
-        console.error("Error fetching feedback:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
     fetchFeedback();
   }, []);
+
+  const handleOpenReply = (feedback: Feedback) => {
+    setReplyModal({ isOpen: true, feedback });
+  };
+
+  const handleCloseReply = () => {
+    setReplyModal({ isOpen: false, feedback: null });
+  };
+
+  const handleArchiveToggle = async (id: string, currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === "archived" ? "active" : "archived";
+      const res = await fetch("/api/admin/feedback", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status: newStatus }),
+      });
+
+      if (!res.ok) throw new Error("Failed to update status");
+
+      // Refresh feedback data
+      await fetchFeedback();
+    } catch (error) {
+      console.error("Error archiving feedback:", error);
+      alert("Failed to update feedback status");
+    }
+  };
 
   // --- DERIVED STATS ---
   const totalReviews = feedbackData.length;
@@ -118,8 +160,12 @@ export default function GuestEngagementPage() {
         : filterRating === 1
         ? item.rating <= 2
         : true; // "Critical" filter
+    
+    const matchesArchived = showArchived
+      ? item.status === "archived"
+      : item.status !== "archived";
 
-    return matchesSearch && matchesFilter;
+    return matchesSearch && matchesFilter && matchesArchived;
   });
 
   return (
@@ -202,6 +248,28 @@ export default function GuestEngagementPage() {
             {tab.label}
           </button>
         ))}
+        
+        {/* Archive Toggle */}
+        <button
+          onClick={() => setShowArchived(!showArchived)}
+          className={`ml-auto px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all border ${
+            showArchived
+              ? "bg-slate-600 text-white border-slate-600 shadow-md"
+              : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+          }`}
+        >
+          {showArchived ? (
+            <>
+              <ArchiveRestore className="w-3.5 h-3.5 inline mr-1" />
+              Show Active
+            </>
+          ) : (
+            <>
+              <Archive className="w-3.5 h-3.5 inline mr-1" />
+              Show Archived
+            </>
+          )}
+        </button>
       </div>
 
       {/* 4. Feedback Feed */}
@@ -230,10 +298,152 @@ export default function GuestEngagementPage() {
         ) : (
           <div className="grid grid-cols-1 gap-6">
             {filteredData.map((item) => (
-              <FeedbackCard key={item.id} review={item} />
+              <FeedbackCard
+                key={item.id}
+                review={item}
+                onReply={handleOpenReply}
+                onArchive={handleArchiveToggle}
+              />
             ))}
           </div>
         )}
+      </div>
+
+      {/* Reply Modal */}
+      {replyModal.isOpen && replyModal.feedback && (
+        <ReplyModal
+          feedback={replyModal.feedback}
+          onClose={handleCloseReply}
+          onSuccess={fetchFeedback}
+        />
+      )}
+    </div>
+  );
+}
+
+// --- SUBCOMPONENT: REPLY MODAL ---
+
+function ReplyModal({
+  feedback,
+  onClose,
+  onSuccess,
+}: {
+  feedback: Feedback;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [replyMessage, setReplyMessage] = useState("");
+  const [isSending, setIsSending] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!replyMessage.trim()) return;
+
+    setIsSending(true);
+    try {
+      const res = await fetch("/api/admin/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: feedback.id,
+          replyMessage: replyMessage.trim(),
+          guestEmail: feedback.guestEmail,
+          guestName: feedback.guestName,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || "Failed to send reply");
+
+      alert("Reply saved successfully!");
+      
+      onSuccess();
+      onClose();
+    } catch (error) {
+      console.error("Error sending reply:", error);
+      alert("Failed to send reply. Please try again.");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-slate-200 p-6 flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-[#0A1A44]">Reply to Feedback</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              Responding to {feedback.guestName}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+
+        {/* Original Feedback */}
+        <div className="p-6 bg-slate-50 border-b border-slate-200">
+          <div className="flex items-center gap-2 mb-3">
+            <StarRating rating={feedback.rating} />
+            <span className="text-xs text-slate-400">•</span>
+            <span className="text-xs text-slate-500 font-medium">
+              {feedback.targetName}
+            </span>
+          </div>
+          <p className="text-slate-700 text-sm leading-relaxed">
+            {feedback.comment}
+          </p>
+        </div>
+
+        {/* Reply Form */}
+        <form onSubmit={handleSubmit} className="p-6">
+          <label className="block mb-2 text-sm font-bold text-slate-700">
+            Your Reply
+          </label>
+          <textarea
+            value={replyMessage}
+            onChange={(e) => setReplyMessage(e.target.value)}
+            placeholder="Write your response to the guest..."
+            className="w-full h-40 px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0A1A44] focus:border-transparent resize-none text-sm"
+            required
+            disabled={isSending}
+          />
+
+          {/* Actions */}
+          <div className="flex gap-3 mt-6">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSending}
+              className="flex-1 px-4 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-50 transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSending || !replyMessage.trim()}
+              className="flex-1 px-4 py-3 bg-[#0A1A44] text-white rounded-xl font-bold text-sm hover:bg-blue-900 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isSending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4" />
+                  Send Reply
+                </>
+              )}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -241,7 +451,15 @@ export default function GuestEngagementPage() {
 
 // --- SUBCOMPONENT: REVIEW CARD ---
 
-function FeedbackCard({ review }: { review: Feedback }) {
+function FeedbackCard({
+  review,
+  onReply,
+  onArchive,
+}: {
+  review: Feedback;
+  onReply: (feedback: Feedback) => void;
+  onArchive: (id: string, status: string) => void;
+}) {
   // Dynamic Styling based on Rating
   const isPositive = review.rating >= 4;
   const isCritical = review.rating <= 2;
@@ -317,11 +535,35 @@ function FeedbackCard({ review }: { review: Feedback }) {
 
         {/* Action */}
         <div className="flex flex-row md:flex-col justify-end items-end gap-2 border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-6">
-          <button className="flex items-center gap-2 px-4 py-2 bg-[#0A1A44] hover:bg-blue-900 text-white text-xs font-bold rounded-lg transition-colors shadow-sm whitespace-nowrap">
-            <Reply className="w-3.5 h-3.5" /> Reply
-          </button>
-          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-bold rounded-lg transition-colors whitespace-nowrap">
-            Archive
+          {review.adminReply ? (
+            <div className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 text-xs font-bold rounded-lg border border-green-200">
+              <CheckCircle className="w-3.5 h-3.5" /> Replied
+            </div>
+          ) : (
+            <button
+              onClick={() => onReply(review)}
+              className="flex items-center gap-2 px-4 py-2 bg-[#0A1A44] hover:bg-blue-900 text-white text-xs font-bold rounded-lg transition-colors shadow-sm whitespace-nowrap"
+            >
+              <Reply className="w-3.5 h-3.5" /> Reply
+            </button>
+          )}
+          <button
+            onClick={() => onArchive(review.id, review.status)}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${
+              review.status === "archived"
+                ? "bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
+                : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-600"
+            }`}
+          >
+            {review.status === "archived" ? (
+              <>
+                <ArchiveRestore className="w-3.5 h-3.5" /> Restore
+              </>
+            ) : (
+              <>
+                <Archive className="w-3.5 h-3.5" /> Archive
+              </>
+            )}
           </button>
         </div>
       </div>
