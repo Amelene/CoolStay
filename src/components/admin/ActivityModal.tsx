@@ -2,7 +2,9 @@
 
 import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/client";
-import { useEffect, useState } from "react";
+import { Upload } from "lucide-react";
+import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 interface Activity {
@@ -30,6 +32,9 @@ export default function ActivityModal({
   activityToEdit,
 }: ActivityModalProps) {
   const [loading, setLoading] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -51,9 +56,11 @@ export default function ActivityModal({
           duration_minutes: activityToEdit.duration_minutes,
           max_participants: activityToEdit.max_participants,
           image_url: activityToEdit.image_url || "",
-          category: (activityToEdit as any).category || "water",
+          category: (activityToEdit as Activity & { category?: string }).category || "water",
           is_active: activityToEdit.is_active,
         });
+        setImagePreview(activityToEdit.image_url || "");
+        setImageFile(null);
       } else {
         setFormData({
           name: "",
@@ -65,65 +72,130 @@ export default function ActivityModal({
           category: "water",
           is_active: true,
         });
+        setImagePreview("");
+        setImageFile(null);
       }
     }
   }, [isOpen, activityToEdit]);
 
   if (!isOpen) return null;
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setImageFile(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setImageFile(null);
+    setImagePreview(activityToEdit?.image_url || "");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate image
+    if (!imageFile && !formData.image_url) {
+      toast.error("Please upload an activity image");
+      return;
+    }
+
     setLoading(true);
     const toastId = toast.loading("Saving activity...");
     const supabase = createClient();
 
-    const payload = {
-      ...formData,
-      updated_at: new Date().toISOString(),
-    };
+    try {
+      let imageUrl = formData.image_url;
 
-    let error;
+      // Upload new image if file is selected
+      if (imageFile) {
+        const fileExt = imageFile.name.split(".").pop();
+        const fileName = `activity_${Date.now()}.${fileExt}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from("room-images")
+          .upload(fileName, imageFile);
 
-    if (activityToEdit) {
-      const { error: updateError } = await supabase
-        .from("activities")
-        .update(payload)
-        .eq("id", activityToEdit.id);
-      error = updateError;
-    } else {
-      const { error: insertError } = await supabase.from("activities").insert({
-        id: crypto.randomUUID(),
-        created_at: new Date().toISOString(),
-        ...payload,
-      });
-      error = insertError;
-    }
+        if (uploadError) throw new Error("Image upload failed: " + uploadError.message);
 
-    if (error) {
-      toast.dismiss(toastId);
-      toast.error("Error: " + error.message);
-    } else {
+        const { data: urlData } = supabase.storage
+          .from("room-images")
+          .getPublicUrl(fileName);
+
+        imageUrl = urlData.publicUrl;
+      }
+
+      const payload = {
+        ...formData,
+        image_url: imageUrl,
+        updated_at: new Date().toISOString(),
+      };
+
+      let error;
+
+      if (activityToEdit) {
+        const { error: updateError } = await supabase
+          .from("activities")
+          .update(payload)
+          .eq("id", activityToEdit.id);
+        error = updateError;
+      } else {
+        const { error: insertError } = await supabase.from("activities").insert({
+          id: crypto.randomUUID(),
+          created_at: new Date().toISOString(),
+          ...payload,
+        });
+        error = insertError;
+      }
+
+      if (error) throw error;
+
       toast.dismiss(toastId);
       toast.success(activityToEdit ? "Activity updated!" : "Activity created!");
       onSuccess();
       onClose();
+    } catch (error: unknown) {
+      toast.dismiss(toastId);
+      toast.error("Error: " + (error instanceof Error ? error.message : "Unknown error"));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
     const { name, value, type } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]:
-        type === "number"
-          ? parseFloat(value) || 0
-          : type === "checkbox"
-          ? (e.target as HTMLInputElement).checked
-          : value,
-    }));
+    
+    if (type === "number") {
+      // Remove leading zeros and parse as number
+      const cleanedValue = value.replace(/^0+(?=\d)/, '');
+      setFormData((prev) => ({
+        ...prev,
+        [name]: cleanedValue === '' ? 0 : parseFloat(cleanedValue) || 0,
+      }));
+    } else if (type === "checkbox") {
+      setFormData((prev) => ({
+        ...prev,
+        [name]: (e.target as HTMLInputElement).checked,
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        [name]: value,
+      }));
+    }
   };
 
   const inputClass =
@@ -179,71 +251,116 @@ export default function ActivityModal({
             </select>
           </div>
 
-          {/* Price and Duration */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
-                Price per Person
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-3 text-gray-400">₱</span>
+          {/* Price and Duration - Hidden for Restaurant */}
+          {formData.category !== "restaurant" && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                  Price per Person
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-3 text-gray-400">₱</span>
+                  <input
+                    type="number"
+                    name="price_per_person"
+                    value={formData.price_per_person}
+                    onChange={handleChange}
+                    className={`${inputClass} pl-8`}
+                    min="0"
+                    step="0.01"
+                    required
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                  Duration (minutes)
+                </label>
                 <input
                   type="number"
-                  name="price_per_person"
-                  value={formData.price_per_person}
+                  name="duration_minutes"
+                  value={formData.duration_minutes}
                   onChange={handleChange}
-                  className={`${inputClass} pl-8`}
-                  min="0"
-                  step="0.01"
+                  className={inputClass}
+                  min="1"
                   required
                 />
               </div>
             </div>
+          )}
+
+          {/* Max Participants - Hidden for Restaurant and Spa */}
+          {formData.category === "water" && (
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
-                Duration (minutes)
+                Max Participants
               </label>
               <input
                 type="number"
-                name="duration_minutes"
-                value={formData.duration_minutes}
+                name="max_participants"
+                value={formData.max_participants}
                 onChange={handleChange}
                 className={inputClass}
                 min="1"
                 required
               />
             </div>
-          </div>
+          )}
 
-          {/* Max Participants */}
+          {/* Image Upload */}
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
-              Max Participants
+              Activity Image
             </label>
+            
+            {imagePreview ? (
+              <div className="relative w-full h-48 rounded-xl overflow-hidden border-2 border-gray-200 group">
+                <Image
+                  src={imagePreview}
+                  alt="Activity preview"
+                  fill
+                  className="object-cover"
+                />
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-4 py-2 bg-white text-gray-800 rounded-lg text-sm font-bold hover:bg-gray-100 transition-colors"
+                  >
+                    Change
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRemoveImage}
+                    className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-bold hover:bg-red-600 transition-colors"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full min-h-48 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-[#0A1A44] hover:bg-gray-50 transition-all"
+              >
+                <Upload className="w-12 h-12 text-gray-400" />
+                <div className="text-center">
+                  <p className="font-bold text-sm text-gray-600">
+                    Click to upload activity image
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    PNG, JPG up to 10MB
+                  </p>
+                </div>
+              </div>
+            )}
+            
             <input
-              type="number"
-              name="max_participants"
-              value={formData.max_participants}
-              onChange={handleChange}
-              className={inputClass}
-              min="1"
-              required
-            />
-          </div>
-
-          {/* Image URL */}
-          <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
-              Image URL
-            </label>
-            <input
-              type="url"
-              name="image_url"
-              value={formData.image_url}
-              onChange={handleChange}
-              placeholder="https://example.com/image.jpg"
-              className={inputClass}
-              required
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              className="hidden"
             />
           </div>
 

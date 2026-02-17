@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/Button";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { RoomSchema } from "@/lib/schemas";
+import { createClient } from "@/lib/supabase/client";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Upload } from "lucide-react";
+import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
+import { useForm } from "react-hook-form";
+import { toast } from "sonner";
 import { z } from "zod";
-import { toast } from "sonner"; // Import
 
 interface RoomType {
   id: string;
@@ -35,11 +37,15 @@ export default function RoomModal({
   roomToEdit,
 }: RoomModalProps) {
   const [loading, setLoading] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     register,
     handleSubmit,
     reset,
+    setValue,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(RoomSchema),
@@ -54,6 +60,13 @@ export default function RoomModal({
     },
   });
 
+  // Handle number input to remove leading zeros
+  const handleNumberInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    const cleanedValue = value.replace(/^0+(?=\d)/, '');
+    setValue(name as keyof RoomFormValues, cleanedValue === '' ? 0 : parseFloat(cleanedValue) || 0);
+  };
+
   useEffect(() => {
     if (isOpen) {
       if (roomToEdit) {
@@ -65,6 +78,8 @@ export default function RoomModal({
           total_rooms: roomToEdit.total_rooms,
           image_url: roomToEdit.image_url || "",
         });
+        setImagePreview(roomToEdit.image_url || "");
+        setImageFile(null);
       } else {
         reset({
           name: "",
@@ -74,48 +89,103 @@ export default function RoomModal({
           total_rooms: 5,
           image_url: "",
         });
+        setImagePreview("");
+        setImageFile(null);
       }
     }
   }, [isOpen, roomToEdit, reset]);
 
   if (!isOpen) return null;
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setImageFile(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setImageFile(null);
+    setImagePreview(roomToEdit?.image_url || "");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const onSubmit = async (data: RoomFormValues) => {
+    // Validate image
+    if (!imageFile && !data.image_url) {
+      toast.error("Please upload a room image");
+      return;
+    }
+
     setLoading(true);
     const toastId = toast.loading("Saving room details...");
     const supabase = createClient();
-    const payload = {
-      ...data,
-      updated_at: new Date().toISOString(),
-    };
 
-    let error;
+    try {
+      let imageUrl = data.image_url;
 
-    if (roomToEdit) {
-      const { error: updateError } = await supabase
-        .from("room_types")
-        .update(payload)
-        .eq("id", roomToEdit.id);
-      error = updateError;
-    } else {
-      const { error: insertError } = await supabase.from("room_types").insert({
-        id: crypto.randomUUID(),
-        created_at: new Date().toISOString(),
-        ...payload,
-      });
-      error = insertError;
-    }
+      // Upload new image if file is selected
+      if (imageFile) {
+        const fileExt = imageFile.name.split(".").pop();
+        const fileName = `room_${Date.now()}.${fileExt}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from("room-images")
+          .upload(fileName, imageFile);
 
-    if (error) {
-      toast.dismiss(toastId);
-      toast.error("Error: " + error.message);
-    } else {
+        if (uploadError) throw new Error("Image upload failed: " + uploadError.message);
+
+        const { data: urlData } = supabase.storage
+          .from("room-images")
+          .getPublicUrl(fileName);
+
+        imageUrl = urlData.publicUrl;
+      }
+
+      const payload = {
+        ...data,
+        image_url: imageUrl,
+        updated_at: new Date().toISOString(),
+      };
+
+      let error;
+
+      if (roomToEdit) {
+        const { error: updateError } = await supabase
+          .from("room_types")
+          .update(payload)
+          .eq("id", roomToEdit.id);
+        error = updateError;
+      } else {
+        const { error: insertError } = await supabase.from("room_types").insert({
+          id: crypto.randomUUID(),
+          created_at: new Date().toISOString(),
+          ...payload,
+        });
+        error = insertError;
+      }
+
+      if (error) throw error;
+
       toast.dismiss(toastId);
       toast.success(roomToEdit ? "Room updated!" : "Room created!");
       onSuccess();
       onClose();
+    } catch (error: unknown) {
+      toast.dismiss(toastId);
+      toast.error("Error: " + (error instanceof Error ? error.message : "Unknown error"));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const inputClass = (hasError: boolean) =>
@@ -169,6 +239,7 @@ export default function RoomModal({
                 <input
                   type="number"
                   {...register("base_price")}
+                  onChange={handleNumberInput}
                   className={`${inputClass(!!errors.base_price)} pl-8`}
                 />
               </div>
@@ -185,6 +256,7 @@ export default function RoomModal({
               <input
                 type="number"
                 {...register("total_rooms")}
+                onChange={handleNumberInput}
                 className={inputClass(!!errors.total_rooms)}
               />
             </div>
@@ -197,23 +269,65 @@ export default function RoomModal({
             <input
               type="number"
               {...register("capacity")}
+              onChange={handleNumberInput}
               className={inputClass(!!errors.capacity)}
             />
           </div>
 
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
-              Image URL
+              Room Image
             </label>
-            <input
-              {...register("image_url")}
-              className={inputClass(!!errors.image_url)}
-            />
-            {errors.image_url && (
-              <p className="text-xs text-red-500 mt-1">
-                {errors.image_url.message as string}
-              </p>
+            
+            {imagePreview ? (
+              <div className="relative w-full h-48 rounded-xl overflow-hidden border-2 border-gray-200 group">
+                <Image
+                  src={imagePreview}
+                  alt="Room preview"
+                  fill
+                  className="object-cover"
+                />
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-4 py-2 bg-white text-gray-800 rounded-lg text-sm font-bold hover:bg-gray-100 transition-colors"
+                  >
+                    Change
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRemoveImage}
+                    className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-bold hover:bg-red-600 transition-colors"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full min-h-48 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center gap-3 cursor-pointer hover:border-[#0A1A44] hover:bg-gray-50 transition-all"
+              >
+                <Upload className="w-12 h-12 text-gray-400" />
+                <div className="text-center">
+                  <p className="font-bold text-sm text-gray-600">
+                    Click to upload room image
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    PNG, JPG up to 10MB
+                  </p>
+                </div>
+              </div>
             )}
+            
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              className="hidden"
+            />
           </div>
 
           <div>

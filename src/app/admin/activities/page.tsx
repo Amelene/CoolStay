@@ -199,15 +199,27 @@ export default function ActivityManagementPage() {
                       ? "Spa"
                       : "Restaurant"}
                   </span>
-                  <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full">
-                    ₱{activity.price_per_person.toLocaleString()}/person
-                  </span>
-                  <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full">
-                    {activity.duration_minutes} min
-                  </span>
-                  <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full">
-                    Max {activity.max_participants}
-                  </span>
+                  
+                  {/* Price - Hidden for Restaurant */}
+                  {activity.category !== "restaurant" && (
+                    <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full">
+                      ₱{activity.price_per_person.toLocaleString()}/person
+                    </span>
+                  )}
+                  
+                  {/* Duration - Hidden for Restaurant */}
+                  {activity.category !== "restaurant" && (
+                    <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full">
+                      {activity.duration_minutes} min
+                    </span>
+                  )}
+                  
+                  {/* Max Participants - Only for Water Activities */}
+                  {activity.category === "water" && (
+                    <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full">
+                      Max {activity.max_participants}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

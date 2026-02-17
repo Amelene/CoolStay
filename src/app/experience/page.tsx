@@ -1,4 +1,4 @@
-"use client";
+ "use client";
 
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
@@ -233,15 +233,26 @@ export default function ExperiencePage() {
                     <div className="space-y-4 text-sm md:text-base font-medium leading-relaxed opacity-90">
                       <p>{activity.description}</p>
                       <div className="flex flex-wrap gap-4 text-sm">
-                        <span className="bg-white/50 px-4 py-2 rounded-lg font-bold">
-                          ₱{activity.price_per_person.toLocaleString()} per person
-                        </span>
-                        <span className="bg-white/50 px-4 py-2 rounded-lg font-bold">
-                          {activity.duration_minutes} minutes
-                        </span>
-                        <span className="bg-white/50 px-4 py-2 rounded-lg font-bold">
-                          Max {activity.max_participants} participants
-                        </span>
+                        {/* Price - Hidden for Restaurant */}
+                        {activity.category !== "restaurant" && (
+                          <span className="bg-white/50 px-4 py-2 rounded-lg font-bold">
+                            ₱{activity.price_per_person.toLocaleString()} per person
+                          </span>
+                        )}
+                        
+                        {/* Duration - Hidden for Restaurant */}
+                        {activity.category !== "restaurant" && (
+                          <span className="bg-white/50 px-4 py-2 rounded-lg font-bold">
+                            {activity.duration_minutes} minutes
+                          </span>
+                        )}
+                        
+                        {/* Max Participants - Only for Water Activities */}
+                        {activity.category === "water" && (
+                          <span className="bg-white/50 px-4 py-2 rounded-lg font-bold">
+                            Max {activity.max_participants} participants
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
