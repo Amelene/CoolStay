@@ -1,13 +1,13 @@
+import { authorizeAdminOnly } from "@/lib/role-auth";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { authorizeAdmin } from "@/lib/admin-auth"; // <--- IMPORT THIS
 
 // GET: Fetch all promos
 export async function GET() {
   const supabase = await createClient();
 
   // 🔒 SECURITY CHECK
-  const { error: authError } = await authorizeAdmin(supabase);
+  const { error: authError } = await authorizeAdminOnly(supabase);
   if (authError) return authError;
 
   const { data: promos, error } = await supabase
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   const supabase = await createClient();
 
   // 🔒 SECURITY CHECK (CRITICAL: Was missing!)
-  const { error: authError } = await authorizeAdmin(supabase);
+  const { error: authError } = await authorizeAdminOnly(supabase);
   if (authError) return authError;
 
   try {

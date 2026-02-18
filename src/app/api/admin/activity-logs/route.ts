@@ -1,3 +1,4 @@
+import { authorizeAdminOnly } from "@/lib/role-auth";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
@@ -5,22 +6,9 @@ export async function GET() {
   try {
     const supabase = await createClient();
 
-    // Check if user is admin
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { data: profile } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
-    if (profile?.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    // Check if user is admin only
+    const { error: authError } = await authorizeAdminOnly(supabase);
+    if (authError) return authError;
 
     const { data, error } = await supabase
       .from("admin_activity_logs")

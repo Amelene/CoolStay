@@ -1,12 +1,12 @@
+import { authorizeAdminOnly } from "@/lib/role-auth";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { authorizeAdmin } from "@/lib/admin-auth";
 
 // GET: Fetch all staff
 export async function GET() {
   const supabase = await createClient();
 
-  const { error: authError } = await authorizeAdmin(supabase);
+  const { error: authError } = await authorizeAdminOnly(supabase);
   if (authError) return authError;
 
   const { data: staff, error } = await supabase
@@ -23,7 +23,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const supabase = await createClient();
 
-  const { error: authError } = await authorizeAdmin(supabase);
+  const { error: authError } = await authorizeAdminOnly(supabase);
   if (authError) return authError;
 
   try {
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const supabase = await createClient();
 
-  const { error: authError } = await authorizeAdmin(supabase);
+  const { error: authError } = await authorizeAdminOnly(supabase);
   if (authError) return authError;
 
   try {
@@ -89,7 +89,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const supabase = await createClient();
 
-  const { error: authError } = await authorizeAdmin(supabase);
+  const { error: authError } = await authorizeAdminOnly(supabase);
   if (authError) return authError;
 
   try {

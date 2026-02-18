@@ -1,10 +1,10 @@
-import { authorizeAdmin } from "@/lib/admin-auth";
+import { authorizeAdminOnly } from "@/lib/role-auth";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
 export async function GET() {
   const supabase = await createClient();
-  const { error: authError, user } = await authorizeAdmin(supabase);
+  const { error: authError, user } = await authorizeAdminOnly(supabase);
   if (authError) return authError;
 
   // 1. Fetch User Details from 'users' table

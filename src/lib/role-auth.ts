@@ -1,8 +1,17 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { ROLES } from "./role_config";
+import { ROLES, UserRole } from "./role_config";
 
-export async function authorizeAdmin(supabase: SupabaseClient) {
+/**
+ * Flexible role-based authorization
+ * @param supabase - Supabase client
+ * @param allowedRoles - Array of roles that can access the resource
+ * @returns Authorization result with error or user
+ */
+export async function authorizeRole(
+  supabase: SupabaseClient,
+  allowedRoles: UserRole[]
+) {
   // 1. Get User
   const {
     data: { user },
@@ -12,11 +21,11 @@ export async function authorizeAdmin(supabase: SupabaseClient) {
     return {
       error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
       user: null,
+      role: null,
     };
   }
 
   // 2. 🚨 SECURITY CHECK: Enforce MFA (AAL2)
-  // Check the current assurance level of the session
   const { data: mfaData, error: mfaError } =
     await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
 
@@ -24,9 +33,10 @@ export async function authorizeAdmin(supabase: SupabaseClient) {
     return {
       error: NextResponse.json(
         { error: "Failed to verify security level" },
-        { status: 500 },
+        { status: 500 }
       ),
       user: null,
+      role: null,
     };
   }
 
@@ -39,14 +49,14 @@ export async function authorizeAdmin(supabase: SupabaseClient) {
     return {
       error: NextResponse.json(
         { error: "Security Check Required: Please complete 2FA" },
-        { status: 403 },
+        { status: 403 }
       ),
       user: null,
+      role: null,
     };
   }
 
-  // 3. Check if Admin or Front Desk
-  // ✅ UPDATED: Now accepts both admin and front_desk roles
+  // 3. Check User Role
   const { data: userData, error: userError } = await supabase
     .from("users")
     .select("role")
@@ -57,23 +67,38 @@ export async function authorizeAdmin(supabase: SupabaseClient) {
     return {
       error: NextResponse.json(
         { error: "Failed to verify user role" },
-        { status: 500 },
+        { status: 500 }
       ),
       user: null,
+      role: null,
     };
   }
 
-  // Allow both admin and front_desk roles
-  const allowedRoles = [ROLES.ADMIN, ROLES.FRONT_DESK];
-  if (!allowedRoles.includes(userData.role)) {
+  // 4. Verify Role Access
+  if (!allowedRoles.includes(userData.role as UserRole)) {
     return {
       error: NextResponse.json(
-        { error: "Forbidden: Admin or Front Desk access required" },
-        { status: 403 },
+        { error: "Forbidden: Insufficient permissions" },
+        { status: 403 }
       ),
       user: null,
+      role: userData.role,
     };
   }
 
-  return { error: null, user };
+  return { error: null, user, role: userData.role };
+}
+
+/**
+ * Admin-only authorization (backward compatible)
+ */
+export async function authorizeAdminOnly(supabase: SupabaseClient) {
+  return authorizeRole(supabase, [ROLES.ADMIN]);
+}
+
+/**
+ * Admin and Front Desk authorization
+ */
+export async function authorizeAdminOrFrontDesk(supabase: SupabaseClient) {
+  return authorizeRole(supabase, [ROLES.ADMIN, ROLES.FRONT_DESK]);
 }
