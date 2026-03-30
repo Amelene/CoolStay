@@ -17,13 +17,15 @@ import {
   Wallet,
   LucideIcon,
 } from "lucide-react";
-import { toast } from "sonner"; // Import
+import { toast } from "sonner";
 
 // --- TYPES ---
 interface StaffMember {
   id: number;
   employee_id: string;
-  full_name: string;
+  first_name: string; // ✅ Updated
+  last_name: string; // ✅ Updated
+  middle_name: string; // ✅ Updated
   email: string;
   phone: string;
   position: string;
@@ -46,7 +48,7 @@ function StatBadge({
   color: string;
 }) {
   return (
-    <div className="bg-white/80 backdrop-blur-sm p-4 rounded-2xl border border-white/50 shadow-sm flex items-center gap-4 flex-1 min-w-[150px]">
+    <div className="bg-white/80 backdrop-blur-sm p-4 rounded-2xl border border-white/50 shadow-sm flex items-center gap-4 flex-1 min-w-37.5">
       <div
         className={`p-3 rounded-xl ${color} text-white shadow-lg transform -rotate-3`}
       >
@@ -102,7 +104,7 @@ export default function StaffManagementPage() {
   const handleDelete = async (id: number) => {
     if (
       !confirm(
-        "Are you sure you want to remove this staff member? This action cannot be undone."
+        "Are you sure you want to remove this staff member? This action cannot be undone.",
       )
     )
       return;
@@ -134,11 +136,13 @@ export default function StaffManagementPage() {
   };
 
   // --- FILTERS & STATS ---
+  // ✅ Updated to search by first or last name
   const filteredStaff = staffList.filter(
     (staff) =>
-      staff.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      staff.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      staff.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       staff.employee_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      staff.position.toLowerCase().includes(searchQuery.toLowerCase())
+      staff.position.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const totalStaff = staffList.length;
@@ -146,14 +150,14 @@ export default function StaffManagementPage() {
   const totalDepartments = new Set(staffList.map((s) => s.department)).size;
   const monthlyPayroll = staffList.reduce(
     (acc, curr) => acc + (curr.salary || 0),
-    0
+    0,
   );
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50/50 p-8 -m-6 relative overflow-hidden font-sans">
       {/* Background Decor */}
-      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-100/50 rounded-full blur-[100px] -z-10 pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-indigo-100/50 rounded-full blur-[100px] -z-10 pointer-events-none" />
+      <div className="absolute top-0 right-0 w-125 h-125 bg-blue-100/50 rounded-full blur-[100px] -z-10 pointer-events-none" />
+      <div className="absolute bottom-0 left-0 w-125 h-125 bg-indigo-100/50 rounded-full blur-[100px] -z-10 pointer-events-none" />
 
       {/* 1. Header & Stats */}
       <div className="flex flex-col gap-8 mb-10">
@@ -285,6 +289,15 @@ function StaffCard({
       Security: "bg-slate-600",
     }[staff.department] || "bg-blue-500";
 
+  const middleInitial =
+    staff.middle_name && staff.middle_name.trim() !== ""
+      ? `${staff.middle_name.trim().charAt(0).toUpperCase()}. `
+      : "";
+
+  // ✅ Construct full name securely handling optional middle name
+  const fullName =
+    `${staff.first_name} ${middleInitial}${staff.last_name}`.trim();
+
   return (
     <div className="group relative bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-slate-100">
       <div className={`h-2 w-full ${deptColor}`} />
@@ -317,22 +330,27 @@ function StaffCard({
             <div
               className={`w-16 h-16 rounded-2xl ${deptColor} text-white flex items-center justify-center font-serif font-bold text-2xl shadow-lg transform group-hover:rotate-3 transition-transform`}
             >
-              {staff.full_name.charAt(0)}
+              {/* ✅ Use first letter of first name */}
+              {staff.first_name?.charAt(0) || "?"}
             </div>
             <div
               className={`absolute -bottom-1 -right-1 w-5 h-5 border-4 border-white rounded-full ${
                 staff.status === "active"
                   ? "bg-green-500"
                   : staff.status === "terminated"
-                  ? "bg-red-500"
-                  : "bg-slate-400"
+                    ? "bg-red-500"
+                    : "bg-slate-400"
               }`}
             ></div>
           </div>
 
           <div className="flex-1 min-w-0 pt-1">
-            <h3 className="font-bold text-[#0A1A44] text-lg truncate leading-tight">
-              {staff.full_name}
+            <h3
+              className="font-bold text-[#0A1A44] text-lg truncate leading-tight"
+              title={fullName}
+            >
+              {/* ✅ Render combined full name */}
+              {fullName}
             </h3>
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
               {staff.position}
