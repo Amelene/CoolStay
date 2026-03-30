@@ -294,7 +294,6 @@ function StaffCard({
       ? `${staff.middle_name.trim().charAt(0).toUpperCase()}. `
       : "";
 
-  // ✅ Construct full name securely handling optional middle name
   const fullName =
     `${staff.first_name} ${middleInitial}${staff.last_name}`.trim();
 
