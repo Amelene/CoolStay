@@ -8,7 +8,7 @@ import {
   Loader2,
   Edit2,
   FileText,
-} from "lucide-react"; // Removed 'Download'
+} from "lucide-react";
 import { toast } from "sonner";
 import Image from "next/image";
 import { PDFDownloadLink } from "@react-pdf/renderer";
@@ -25,12 +25,12 @@ interface PaymentProofModalProps {
     proof_url: string;
     total_booking_amount: number;
     booking_id: string;
+    status: string; // ✅ Includes the missing status prop
   } | null;
   onSuccess?: () => void;
   readOnly?: boolean;
 }
 
-// NEW: Define proper interface for receipt data
 interface BookingReceiptData {
   id: string;
   total_amount: number;
@@ -62,11 +62,13 @@ export default function PaymentProofModal({
   const [loading, setLoading] = useState(false);
   const [verifiedAmount, setVerifiedAmount] = useState<number | string>("");
 
-  // Fixed: Typed state instead of 'any'
   const [fullBookingData, setFullBookingData] =
     useState<BookingReceiptData | null>(null);
 
-  // Removed unused 'isReceiptLoading' state
+  // ✅ Auto-lock if the payment is already confirmed
+  const isLocked =
+    readOnly ||
+    (payment && (payment.status === "completed" || payment.status === "paid"));
 
   useEffect(() => {
     if (payment) {
@@ -80,17 +82,11 @@ export default function PaymentProofModal({
     const { data, error } = await supabase
       .from("bookings")
       .select(
-        `
-            *,
-            room_types(name),
-            users(full_name, email, phone),
-            payments(*)
-        `
+        `*, room_types(name), users(full_name, email, phone), payments(*)`,
       )
       .eq("id", bookingId)
       .single();
 
-    // Fixed type casting safely
     if (data && !error) {
       setFullBookingData(data as unknown as BookingReceiptData);
     }
@@ -102,7 +98,7 @@ export default function PaymentProofModal({
   const paymentTypeLabel = isFullPayment ? "Full Payment" : "Downpayment";
 
   const handleUpdate = async (status: "completed" | "failed") => {
-    if (readOnly) return;
+    if (isLocked) return;
 
     if (
       status === "completed" &&
@@ -114,7 +110,7 @@ export default function PaymentProofModal({
 
     setLoading(true);
     const toastId = toast.loading(
-      status === "completed" ? "Verifying payment..." : "Rejecting payment..."
+      status === "completed" ? "Verifying payment..." : "Rejecting payment...",
     );
 
     try {
@@ -132,12 +128,11 @@ export default function PaymentProofModal({
 
       toast.dismiss(toastId);
       toast.success(
-        status === "completed" ? "Payment Verified!" : "Payment Rejected"
+        status === "completed" ? "Payment Verified!" : "Payment Rejected",
       );
       if (onSuccess) onSuccess();
       onClose();
     } catch {
-      // Fixed: Removed unused 'error' variable
       toast.dismiss(toastId);
       toast.error("An error occurred");
     } finally {
@@ -148,11 +143,10 @@ export default function PaymentProofModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-lg rounded-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header */}
         <div className="bg-slate-900 p-4 text-white flex justify-between items-center">
           <div>
             <h2 className="font-bold text-lg">
-              {readOnly ? "Payment Details" : "Verify Payment"}
+              {isLocked ? "Payment Details" : "Verify Payment"}
             </h2>
             <span
               className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
@@ -172,9 +166,8 @@ export default function PaymentProofModal({
           </button>
         </div>
 
-        {/* Image Container */}
-        <div className="flex-1 overflow-auto bg-slate-100 p-4 flex items-center justify-center min-h-[300px]">
-          <div className="relative w-full h-full min-h-[400px]">
+        <div className="flex-1 overflow-auto bg-slate-100 p-4 flex items-center justify-center min-h-75">
+          <div className="relative w-full h-full min-h-100">
             {payment.proof_url ? (
               <Image
                 src={payment.proof_url}
@@ -188,7 +181,6 @@ export default function PaymentProofModal({
           </div>
         </div>
 
-        {/* Info & Actions */}
         <div className="p-6 bg-white border-t space-y-4">
           <div className="flex justify-between items-start">
             <div>
@@ -209,9 +201,9 @@ export default function PaymentProofModal({
 
             <div className="text-right">
               <p className="text-xs text-slate-400 uppercase font-bold mb-1">
-                {readOnly ? "Verified Amount" : "Confirm Received"}
+                {isLocked ? "Verified Amount" : "Confirm Received"}
               </p>
-              {readOnly ? (
+              {isLocked ? (
                 <p className="font-bold text-xl text-green-600">
                   ₱{payment.amount.toLocaleString()}
                 </p>
@@ -223,7 +215,7 @@ export default function PaymentProofModal({
                     value={verifiedAmount}
                     onChange={(e) =>
                       setVerifiedAmount(
-                        e.target.value === "" ? "" : Number(e.target.value)
+                        e.target.value === "" ? "" : Number(e.target.value),
                       )
                     }
                     className="w-28 font-bold text-xl text-blue-600 text-right border-b-2 border-slate-200 focus:border-blue-600 outline-none bg-transparent transition-colors"
@@ -234,8 +226,7 @@ export default function PaymentProofModal({
             </div>
           </div>
 
-          {/* Download Receipt Button (If verified) */}
-          {readOnly && fullBookingData && (
+          {isLocked && fullBookingData && (
             <div className="pt-2">
               <PDFDownloadLink
                 document={
@@ -247,7 +238,6 @@ export default function PaymentProofModal({
                 fileName={`Receipt_${payment.booking_id.substring(0, 8)}.pdf`}
                 className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors border border-slate-200"
               >
-                {/* Fixed: Removed @ts-expect-error as it is handled by the component */}
                 {({ loading }) =>
                   loading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -261,7 +251,7 @@ export default function PaymentProofModal({
             </div>
           )}
 
-          {!readOnly && (
+          {!isLocked && (
             <div className="grid grid-cols-2 gap-3 pt-2">
               <button
                 onClick={() => handleUpdate("failed")}
@@ -290,8 +280,7 @@ export default function PaymentProofModal({
             </div>
           )}
 
-          {/* Warning for Discrepancy */}
-          {!readOnly &&
+          {!isLocked &&
             verifiedAmount !== "" &&
             Number(verifiedAmount) !== payment.amount && (
               <div className="bg-yellow-50 text-yellow-700 p-2 rounded-lg text-xs text-center border border-yellow-200">
