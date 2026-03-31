@@ -35,6 +35,7 @@ export async function GET() {
 }
 
 // PATCH: Update Status
+// PATCH: Update Status
 export async function PATCH(request: Request) {
   try {
     const supabase = await createClient();
@@ -42,7 +43,9 @@ export async function PATCH(request: Request) {
     if (authError) return authError;
 
     const body = await request.json();
-    const { id, status } = body;
+    // ✅ Extract the new security deposit fields
+    const { id, status, security_deposit_status, security_deposit_notes } =
+      body;
 
     // Fetch booking with full details for email
     const { data: booking, error: fetchError } = await supabase
@@ -52,7 +55,7 @@ export async function PATCH(request: Request) {
         *,
         users (full_name, email, phone),
         room_types (name)
-      `
+      `,
       )
       .eq("id", id)
       .single();
@@ -60,7 +63,6 @@ export async function PATCH(request: Request) {
     if (fetchError || !booking)
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });
 
-    // Store old status to check if we're confirming
     const oldStatus = booking.status;
 
     if (status === "checked_in") {
@@ -79,9 +81,23 @@ export async function PATCH(request: Request) {
       }
     }
 
+    // ✅ Build a dynamic update payload so we only update what is sent
+    interface UpdatePayload {
+      status?: string;
+      security_deposit_status?: string;
+      security_deposit_notes?: string | null;
+    }
+
+    const updatePayload: UpdatePayload = {};
+    if (status) updatePayload.status = status;
+    if (security_deposit_status)
+      updatePayload.security_deposit_status = security_deposit_status;
+    if (security_deposit_notes !== undefined)
+      updatePayload.security_deposit_notes = security_deposit_notes;
+
     const { data, error } = await supabase
       .from("bookings")
-      .update({ status })
+      .update(updatePayload)
       .eq("id", id)
       .select()
       .single();
@@ -91,8 +107,7 @@ export async function PATCH(request: Request) {
     // 🔔 Send email notification when booking is confirmed
     if (status === "confirmed" && oldStatus !== "confirmed") {
       console.log("Booking confirmed, sending email notification...");
-      
-      // Send email asynchronously (don't block the response)
+
       sendBookingConfirmationEmailWithRetry({
         guestName: booking.users?.full_name || "Guest",
         guestEmail: booking.users?.email || "",
@@ -105,15 +120,20 @@ export async function PATCH(request: Request) {
         totalAmount: booking.total_amount,
         bookingId: booking.id,
         specialRequests: booking.special_requests,
-      }).then((result: { success: boolean; error?: string }) => {
-        if (result.success) {
-          console.log("✅ Confirmation email sent successfully");
-        } else {
-          console.error("❌ Failed to send confirmation email:", result.error);
-        }
-      }).catch((err: unknown) => {
-        console.error("❌ Email sending error:", err);
-      });
+      })
+        .then((result: { success: boolean; error?: string }) => {
+          if (result.success) {
+            console.log("✅ Confirmation email sent successfully");
+          } else {
+            console.error(
+              "❌ Failed to send confirmation email:",
+              result.error,
+            );
+          }
+        })
+        .catch((err: unknown) => {
+          console.error("❌ Email sending error:", err);
+        });
     }
 
     return NextResponse.json(data);
@@ -201,8 +221,10 @@ export async function POST(request: Request) {
     if (error) throw error;
 
     // 🔔 Send email notification for new confirmed booking
-    console.log("New booking created with confirmed status, sending email notification...");
-    
+    console.log(
+      "New booking created with confirmed status, sending email notification...",
+    );
+
     // Fetch user details for email
     const { data: userProfile } = await supabase
       .from("users")
@@ -223,15 +245,17 @@ export async function POST(request: Request) {
       totalAmount: total_amount,
       bookingId: data.id,
       specialRequests: special_requests,
-    }).then((result: { success: boolean; error?: string }) => {
-      if (result.success) {
-        console.log("✅ Confirmation email sent successfully");
-      } else {
-        console.error("❌ Failed to send confirmation email:", result.error);
-      }
-    }).catch((err: unknown) => {
-      console.error("❌ Email sending error:", err);
-    });
+    })
+      .then((result: { success: boolean; error?: string }) => {
+        if (result.success) {
+          console.log("✅ Confirmation email sent successfully");
+        } else {
+          console.error("❌ Failed to send confirmation email:", result.error);
+        }
+      })
+      .catch((err: unknown) => {
+        console.error("❌ Email sending error:", err);
+      });
 
     return NextResponse.json(data);
   } catch (error: unknown) {
