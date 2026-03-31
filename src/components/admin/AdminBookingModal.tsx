@@ -12,6 +12,7 @@ import {
   Milk,
   Plus,
   Minus,
+  XCircle,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
@@ -27,9 +28,9 @@ interface RoomType {
   id: string;
   name: string;
   base_price: number;
+  capacity: number; // ✅ Added for validation
 }
 
-// --- HELPER FUNCTIONS FOR CALENDAR ---
 const getDaysInMonth = (year: number, month: number) =>
   new Date(year, month + 1, 0).getDate();
 const getFirstDayOfMonth = (year: number, month: number) =>
@@ -47,12 +48,9 @@ export default function AdminBookingModal({
   const [roomId, setRoomId] = useState("");
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
-
-  // Guest Counters
   const [adults, setAdults] = useState(1);
   const [children, setChildren] = useState(0);
   const [infants, setInfants] = useState(0);
-
   const [totalAmount, setTotalAmount] = useState<number>(0);
   const [notes, setNotes] = useState("");
 
@@ -62,40 +60,33 @@ export default function AdminBookingModal({
   const [hoverDate, setHoverDate] = useState<string | null>(null);
   const calendarRef = useRef<HTMLDivElement>(null);
 
-  // 1. Fetch Rooms
   useEffect(() => {
     const fetchRooms = async () => {
       const supabase = createClient();
       const { data } = await supabase
         .from("room_types")
-        .select("id, name, base_price")
+        .select("id, name, base_price, capacity")
         .eq("is_active", true);
       if (data) setRoomTypes(data);
     };
     if (isOpen) fetchRooms();
   }, [isOpen]);
 
-  // 2. Auto-Calculate Price (Read-Only Logic)
   useEffect(() => {
     if (roomId && checkIn && checkOut) {
       const start = new Date(checkIn);
       const end = new Date(checkOut);
       const diffTime = end.getTime() - start.getTime();
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
       const room = roomTypes.find((r) => r.id === roomId);
 
-      if (room && diffDays > 0) {
-        setTotalAmount(room.base_price * diffDays);
-      } else {
-        setTotalAmount(0);
-      }
+      if (room && diffDays > 0) setTotalAmount(room.base_price * diffDays);
+      else setTotalAmount(0);
     } else {
       setTotalAmount(0);
     }
   }, [roomId, checkIn, checkOut, roomTypes]);
 
-  // 3. Handle Outside Clicks for Calendar
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -109,15 +100,13 @@ export default function AdminBookingModal({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // --- CALENDAR LOGIC ---
   const handleDateClick = (dateStr: string) => {
     if (!checkIn || (checkIn && checkOut && checkIn !== checkOut)) {
       setCheckIn(dateStr);
       setCheckOut("");
     } else if (checkIn && !checkOut) {
-      if (dateStr < checkIn) {
-        setCheckIn(dateStr);
-      } else {
+      if (dateStr < checkIn) setCheckIn(dateStr);
+      else {
         setCheckOut(dateStr);
         setShowCalendar(false);
       }
@@ -208,6 +197,13 @@ export default function AdminBookingModal({
     );
   };
 
+  // ✅ Real-Time Validation Logic
+  const selectedRoom = roomTypes.find((r) => r.id === roomId);
+  const totalPax = adults + children;
+  const isOverCapacity = selectedRoom
+    ? totalPax > selectedRoom.capacity
+    : false;
+
   const handleSubmit = async () => {
     if (!roomId || !checkIn || !checkOut || !totalAmount) {
       toast.error("Please fill in all required fields.");
@@ -226,7 +222,7 @@ export default function AdminBookingModal({
           adults,
           children,
           infants,
-          guests_count: adults + children,
+          guests_count: totalPax,
           total_amount: totalAmount,
           special_requests: notes,
         }),
@@ -249,7 +245,6 @@ export default function AdminBookingModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header */}
         <div className="bg-[#0A1A44] p-5 text-white flex justify-between items-center shrink-0">
           <div>
             <h2 className="font-serif font-bold text-xl">New Booking</h2>
@@ -266,7 +261,6 @@ export default function AdminBookingModal({
         </div>
 
         <div className="p-6 space-y-6 overflow-y-auto">
-          {/* 1. Room Selector */}
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
               Select Room
@@ -287,7 +281,6 @@ export default function AdminBookingModal({
             </div>
           </div>
 
-          {/* 2. Calendar Date Picker */}
           <div className="relative" ref={calendarRef}>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
               Dates of Stay
@@ -309,8 +302,8 @@ export default function AdminBookingModal({
                   >
                     {checkIn
                       ? new Date(checkIn).toLocaleDateString()
-                      : "Select Date"}
-                    {" — "}
+                      : "Select Date"}{" "}
+                    —{" "}
                     {checkOut
                       ? new Date(checkOut).toLocaleDateString()
                       : "Select Date"}
@@ -318,8 +311,6 @@ export default function AdminBookingModal({
                 </div>
               </div>
             </div>
-
-            {/* Calendar Popover */}
             {showCalendar && (
               <div className="absolute top-full left-0 right-0 mt-2 z-50 bg-white rounded-2xl shadow-xl border border-slate-100 p-4 flex flex-col md:flex-row gap-4 animate-in zoom-in-95 origin-top">
                 <div className="absolute top-4 left-4 right-4 flex justify-between pointer-events-none">
@@ -353,13 +344,11 @@ export default function AdminBookingModal({
             )}
           </div>
 
-          {/* 3. Guest Counters */}
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
               Guest Breakdown
             </label>
             <div className="grid grid-cols-3 gap-3">
-              {/* Adults */}
               <div className="flex flex-col items-center p-2 rounded-xl border border-slate-200">
                 <span className="text-[10px] font-bold text-[#0A1A44] uppercase mb-1 flex items-center gap-1">
                   <Users className="w-3 h-3" /> Adults
@@ -382,8 +371,6 @@ export default function AdminBookingModal({
                   </button>
                 </div>
               </div>
-
-              {/* Children */}
               <div className="flex flex-col items-center p-2 rounded-xl border border-slate-200">
                 <span className="text-[10px] font-bold text-[#0A1A44] uppercase mb-1 flex items-center gap-1">
                   <Baby className="w-3 h-3" /> Kids
@@ -406,8 +393,6 @@ export default function AdminBookingModal({
                   </button>
                 </div>
               </div>
-
-              {/* Infants */}
               <div className="flex flex-col items-center p-2 rounded-xl border border-blue-200 bg-blue-50/50">
                 <span className="text-[10px] font-bold text-blue-600 uppercase mb-1 flex items-center gap-1">
                   <Milk className="w-3 h-3" /> Infants
@@ -433,7 +418,16 @@ export default function AdminBookingModal({
             </div>
           </div>
 
-          {/* 4. Total Amount (Read-Only) */}
+          {selectedRoom && isOverCapacity && (
+            <div className="bg-red-50 p-3 rounded-xl border border-red-200 text-red-600 text-xs flex items-center gap-2 font-bold animate-in fade-in">
+              <XCircle className="w-4 h-4 shrink-0" />
+              <span>
+                Capacity Exceeded! <b>{selectedRoom.name}</b> allows a maximum
+                of <b>{selectedRoom.capacity}</b> guests (excluding infants).
+              </span>
+            </div>
+          )}
+
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
             <div>
               <p className="text-xs font-bold text-slate-400 uppercase">
@@ -450,7 +444,6 @@ export default function AdminBookingModal({
             </div>
           </div>
 
-          {/* ✅ 4.5 Security Deposit Callout (Placed OUTSIDE the div above) */}
           <div className="bg-orange-50/50 p-4 rounded-xl border border-orange-200 border-dashed flex gap-3 items-start">
             <div className="bg-orange-100 p-1.5 rounded-lg text-orange-600 mt-0.5">
               <svg
@@ -479,7 +472,6 @@ export default function AdminBookingModal({
             </div>
           </div>
 
-          {/* 5. Notes */}
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
               Special Requests / Notes
@@ -495,7 +487,7 @@ export default function AdminBookingModal({
 
           <Button
             onClick={handleSubmit}
-            disabled={loading}
+            disabled={loading || isOverCapacity}
             className="w-full py-6 text-base bg-[#0A1A44] hover:bg-blue-900 text-white shadow-lg shadow-blue-900/20 rounded-xl"
           >
             {loading ? <Loader2 className="animate-spin" /> : "Confirm Booking"}
