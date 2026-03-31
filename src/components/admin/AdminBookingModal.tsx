@@ -450,6 +450,35 @@ export default function AdminBookingModal({
             </div>
           </div>
 
+          {/* ✅ 4.5 Security Deposit Callout (Placed OUTSIDE the div above) */}
+          <div className="bg-orange-50/50 p-4 rounded-xl border border-orange-200 border-dashed flex gap-3 items-start">
+            <div className="bg-orange-100 p-1.5 rounded-lg text-orange-600 mt-0.5">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-orange-800 uppercase tracking-wide">
+                Required Cash Deposit
+              </p>
+              <p className="text-[10px] text-orange-700 mt-0.5 font-medium leading-relaxed">
+                A fixed ₱1,000 security deposit will be automatically added to
+                this booking. Remind the guest this must be paid in{" "}
+                <span className="font-bold">CASH</span> at check-in.
+              </p>
+            </div>
+          </div>
+
           {/* 5. Notes */}
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
