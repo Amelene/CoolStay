@@ -168,6 +168,8 @@ export async function POST(request: Request) {
     }
 
     // 5. Create Booking with breakdown
+    const SECURITY_DEPOSIT = 1000.0;
+
     const { data, error: insertError } = await adminDb
       .from("bookings")
       .insert({
@@ -175,11 +177,13 @@ export async function POST(request: Request) {
         room_type_id,
         check_in_date: check_in,
         check_out_date: check_out,
-        guests_count: (Number(adults) || 1) + (Number(children) || 0), // Legacy Sum
+        guests_count: (Number(adults) || 1) + (Number(children) || 0),
         adults: Number(adults) || 1,
         children: Number(children) || 0,
         infants: Number(infants) || 0,
-        total_amount: calculatedTotal, // ✅ SECURE: Uses server value
+        total_amount: calculatedTotal,
+        security_deposit_amount: SECURITY_DEPOSIT, // <-- NEW FIELD ADDED
+        security_deposit_status: "pending", // <-- NEW FIELD ADDED
         status: "pending",
         payment_status: "pending",
       })
