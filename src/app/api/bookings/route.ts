@@ -166,16 +166,51 @@ export async function POST(request: Request) {
 
     const baseTotalAmount = baseRate * nights;
 
-    // 🔒 SERVER-SIDE DISCOUNT CALCULATION (Philippine Law — 20% on eligible pax share)
-    let discountAmount = 0;
+    // 🔒 SERVER-SIDE DISCOUNT CALCULATION (The "No Stacking" Rule)
+    const { promo_code } = body; // Extract from body
 
+    let seniorPwdDiscount = 0;
     if (totalHeadcount > 0 && (numSeniors > 0 || numPwds > 0)) {
       const perPaxRate = baseTotalAmount / totalHeadcount;
       const eligibleShare = perPaxRate * (numSeniors + numPwds);
-      discountAmount = eligibleShare * 0.2;
+      seniorPwdDiscount = eligibleShare * 0.2;
     }
 
-    const calculatedTotal = baseTotalAmount - discountAmount;
+    let marketingDiscount = 0;
+    let appliedPromoId = null;
+
+    // Verify promo backend-side again for security
+    if (promo_code) {
+      const { data: promo } = await adminDb
+        .from("promotions")
+        .select("*")
+        .ilike("code", promo_code)
+        .eq("status", "active")
+        .single();
+
+      if (
+        promo &&
+        (!promo.usage_limit || promo.usage_count < promo.usage_limit)
+      ) {
+        if (promo.discount_type === "percentage") {
+          marketingDiscount = baseTotalAmount * (promo.discount_value / 100);
+        } else if (promo.discount_type === "fixed") {
+          marketingDiscount = promo.discount_value;
+        }
+        appliedPromoId = promo.id;
+      }
+    }
+
+    // "Best Price Wins" Rule (No Stacking)
+    let finalDiscountAmount = 0;
+    if (seniorPwdDiscount >= marketingDiscount) {
+      finalDiscountAmount = seniorPwdDiscount;
+      appliedPromoId = null; // We drop the promo because Senior is better
+    } else {
+      finalDiscountAmount = marketingDiscount;
+    }
+
+    const calculatedTotal = baseTotalAmount - finalDiscountAmount;
 
     // 4. Availability Check
     const searchStart = check_in;
@@ -230,6 +265,8 @@ export async function POST(request: Request) {
         children: numChildren,
         infants: numInfants,
         total_amount: calculatedTotal,
+        discount_amount: finalDiscountAmount, // <-- NEW
+        promo_id: appliedPromoId, // <-- NEW
         security_deposit_amount: SECURITY_DEPOSIT,
         security_deposit_status: "pending",
         status: "pending",
@@ -239,6 +276,13 @@ export async function POST(request: Request) {
       .single();
 
     if (insertError) throw insertError;
+
+    // 💥 TRIGGER ATOMIC RPC IF PROMO WAS USED
+    if (appliedPromoId) {
+      await adminDb.rpc("increment_promo_usage", {
+        promo_id_param: appliedPromoId,
+      });
+    }
 
     // 5.5 INSERT DISCOUNT VERIFICATIONS
     if (discounts && discounts.length > 0) {

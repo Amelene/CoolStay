@@ -16,6 +16,8 @@ import {
   Sun,
   Users,
   X,
+  Tag,
+  Loader2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
@@ -89,6 +91,16 @@ export default function BookRoomModal({
   const [pwds, setPwds] = useState(0);
   const [discountGuests, setDiscountGuests] = useState<DiscountGuest[]>([]);
 
+  // PROMO STATE
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [verifyingPromo, setVerifyingPromo] = useState(false);
+  const [appliedPromo, setAppliedPromo] = useState<{
+    code: string;
+    type: string;
+    value: number;
+    id: string;
+  } | null>(null);
+
   const [error, setError] = useState<string | null>(null);
 
   // Payment Modal State
@@ -142,8 +154,7 @@ export default function BookRoomModal({
   }, [seniors, pwds]);
 
   // --- CAPACITY GUARDRAILS ---
-  const maxCapacity = room.capacity || 2;
-
+  const maxCapacity = room.capacity || 10;
   const currentTotalGuests = adults + children + seniors + pwds;
   const canAddGuest = currentTotalGuests < maxCapacity;
 
@@ -160,11 +171,11 @@ export default function BookRoomModal({
     }
   };
 
-  // --- PRICE CALCULATION (Philippine Legal Discount) ---
+  // --- ADVANCED PRICE CALCULATION (No Stacking Logic) ---
   let baseTotalPrice = 0;
-  let discountAmount = 0;
   let finalTotalPrice = 0;
 
+  // 1. Calculate Base Price
   if (checkIn && checkOut) {
     const start = new Date(checkIn);
     const end = new Date(checkOut);
@@ -177,21 +188,47 @@ export default function BookRoomModal({
       baseTotalPrice = room.price_night || room.base_price;
     else if (diffDays > 0)
       baseTotalPrice = diffDays * (room.price_overnight || room.base_price);
-
-    const totalHeadcount = adults + children + seniors + pwds;
-    if (totalHeadcount > 0 && (seniors > 0 || pwds > 0)) {
-      const perPaxRate = baseTotalPrice / totalHeadcount;
-      const eligibleShare = perPaxRate * (seniors + pwds);
-      discountAmount = eligibleShare * 0.2;
-    }
-    finalTotalPrice = baseTotalPrice - discountAmount;
   }
 
+  // 2. Calculate Senior/PWD Discount (20% of eligible share)
+  let seniorPwdDiscount = 0;
+  const totalHeadcount = adults + children + seniors + pwds;
+  if (totalHeadcount > 0 && (seniors > 0 || pwds > 0)) {
+    const perPaxRate = baseTotalPrice / totalHeadcount;
+    const eligibleShare = perPaxRate * (seniors + pwds);
+    seniorPwdDiscount = eligibleShare * 0.2;
+  }
+
+  // 3. Calculate Marketing Promo Discount
+  let marketingDiscount = 0;
+  if (appliedPromo) {
+    if (appliedPromo.type === "percentage") {
+      marketingDiscount = baseTotalPrice * (appliedPromo.value / 100);
+    } else {
+      marketingDiscount = appliedPromo.value; // fixed amount
+    }
+  }
+
+  // 4. THE BEST PRICE RULE (Determine winner)
+  let finalDiscountAmount = 0;
+  let activeDiscountType: "none" | "senior" | "promo" = "none";
+
+  if (seniorPwdDiscount > 0 || marketingDiscount > 0) {
+    if (seniorPwdDiscount >= marketingDiscount) {
+      finalDiscountAmount = seniorPwdDiscount;
+      activeDiscountType = "senior";
+    } else {
+      finalDiscountAmount = marketingDiscount;
+      activeDiscountType = "promo";
+    }
+  }
+
+  finalTotalPrice = baseTotalPrice - finalDiscountAmount;
+
+  // --- EVENT HANDLERS ---
   const handleStayTypeChange = (type: StayType) => {
     setStayType(type);
-    if (type !== "overnight" && checkIn) {
-      setCheckOut(checkIn);
-    }
+    if (type !== "overnight" && checkIn) setCheckOut(checkIn);
   };
 
   const handleDateClick = (dateStr: string) => {
@@ -201,16 +238,14 @@ export default function BookRoomModal({
       setShowCalendar(false);
       return;
     }
-
     if (!checkIn || (checkIn && checkOut && checkIn !== checkOut)) {
       setCheckIn(dateStr);
       setCheckOut("");
     } else if (checkIn && !checkOut) {
-      if (dateStr < checkIn) {
-        setCheckIn(dateStr);
-      } else if (dateStr === checkIn) {
+      if (dateStr < checkIn) setCheckIn(dateStr);
+      else if (dateStr === checkIn)
         toast.error("Overnight stays require at least 1 night.");
-      } else {
+      else {
         setCheckOut(dateStr);
         setShowCalendar(false);
       }
@@ -218,6 +253,57 @@ export default function BookRoomModal({
       setCheckIn(dateStr);
       setCheckOut("");
     }
+  };
+
+  // API Call to verify promo code
+  const handleApplyPromo = async () => {
+    if (!promoCodeInput.trim()) return;
+
+    if (baseTotalPrice <= 0) {
+      toast.error("Please select your dates first to apply a promo.");
+      return;
+    }
+
+    setVerifyingPromo(true);
+    try {
+      const res = await fetch("/api/promotions/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: promoCodeInput,
+          cart_total: baseTotalPrice,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok)
+        throw new Error(data.error || "Failed to verify promo code.");
+
+      setAppliedPromo(data.promo);
+      toast.success("Promo code applied successfully!");
+      setPromoCodeInput("");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        toast.error(err.message);
+      } else {
+        toast.error("An unexpected error occurred.");
+      }
+      setAppliedPromo(null);
+    } finally {
+      setVerifyingPromo(false);
+    }
+  };
+
+  // Payment Handlers (Added back)
+  const handlePaymentSuccess = () => {
+    setShowPaymentModal(false);
+    onClose();
+    router.push("/dashboard");
+  };
+
+  const handlePaymentClose = () => {
+    setShowPaymentModal(false);
   };
 
   const handleBooking = async (e: React.FormEvent) => {
@@ -232,24 +318,21 @@ export default function BookRoomModal({
       setLoading(false);
       return;
     }
-
     if (checkIn < today) {
       toast.error("Cannot book past dates.");
       setLoading(false);
       return;
     }
-
     if (stayType === "overnight" && checkOut <= checkIn) {
       toast.error("Overnight stays require check-out after check-in.");
       setLoading(false);
       return;
     }
 
-    // Validate discount guest fields
     const missingDocs = discountGuests.some(
       (g) => !g.name || !g.idNumber || !g.file,
     );
-    if (missingDocs) {
+    if (activeDiscountType === "senior" && missingDocs) {
       toast.error(
         "Please complete all required fields and ID uploads for declared Seniors/PWDs.",
       );
@@ -264,41 +347,38 @@ export default function BookRoomModal({
 
     if (!user) {
       toast.info("Please log in to complete your booking.");
-      const params = new URLSearchParams();
-      params.set("room_id", room.id);
-      params.set("check_in", checkIn);
-      params.set("check_out", checkOut);
-      params.set("adults", adults.toString());
-      params.set("children", children.toString());
-      params.set("infants", infants.toString());
-      router.push(
-        `/login?return_to=${encodeURIComponent(`/accommodation?${params.toString()}`)}`,
-      );
+      router.push(`/login?return_to=${encodeURIComponent(`/accommodation`)}`);
       return;
     }
 
     try {
-      // Upload ID files to Supabase Storage first
-      const uploadedDiscounts = await Promise.all(
-        discountGuests.map(async (guest) => {
-          const fileExt = guest.file!.name.split(".").pop();
-          const fileName = `${user.id}-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-          const filePath = `ids/${fileName}`;
+      // Corrected Type
+      let uploadedDiscounts: {
+        guest_name: string;
+        discount_type: string;
+        id_number: string;
+        id_image_url: string;
+      }[] = [];
 
-          const { error: uploadError } = await supabase.storage
-            .from("verification_ids")
-            .upload(filePath, guest.file!);
-
-          if (uploadError) throw new Error("Failed to upload ID images.");
-
-          return {
-            guest_name: guest.name,
-            discount_type: guest.type,
-            id_number: guest.idNumber,
-            id_image_url: filePath,
-          };
-        }),
-      );
+      if (activeDiscountType === "senior" && discountGuests.length > 0) {
+        uploadedDiscounts = await Promise.all(
+          discountGuests.map(async (guest) => {
+            const fileExt = guest.file!.name.split(".").pop();
+            const fileName = `${user.id}-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+            const filePath = `ids/${fileName}`;
+            const { error: uploadError } = await supabase.storage
+              .from("verification_ids")
+              .upload(filePath, guest.file!);
+            if (uploadError) throw new Error("Failed to upload ID images.");
+            return {
+              guest_name: guest.name,
+              discount_type: guest.type,
+              id_number: guest.idNumber,
+              id_image_url: filePath,
+            };
+          }),
+        );
+      }
 
       const response = await fetch("/api/bookings", {
         method: "POST",
@@ -312,9 +392,11 @@ export default function BookRoomModal({
           infants,
           seniors,
           pwds,
-          guests: adults + children + seniors + pwds,
-          total_price: finalTotalPrice,
           discounts: uploadedDiscounts,
+          promo_code:
+            activeDiscountType === "promo" && appliedPromo
+              ? appliedPromo.code
+              : null,
         }),
       });
 
@@ -419,16 +501,6 @@ export default function BookRoomModal({
     );
   };
 
-  const handlePaymentSuccess = () => {
-    setShowPaymentModal(false);
-    onClose();
-    router.push("/dashboard");
-  };
-
-  const handlePaymentClose = () => {
-    setShowPaymentModal(false);
-  };
-
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
@@ -509,7 +581,7 @@ export default function BookRoomModal({
                               day: "numeric",
                               year: "numeric",
                             })
-                          : "Check-in"}
+                          : "Check-in"}{" "}
                         {" — "}
                         {checkOut
                           ? new Date(checkOut).toLocaleDateString("en-US", {
@@ -726,82 +798,167 @@ export default function BookRoomModal({
 
                 {/* MANDATORY ID UPLOADS */}
                 {discountGuests.length > 0 && (
-                  <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl">
-                    <h4 className="text-xs font-bold text-orange-800 uppercase mb-3">
+                  <div
+                    className={`p-4 rounded-xl border transition-all ${activeDiscountType === "promo" ? "bg-slate-50 border-slate-200 opacity-60" : "bg-orange-50 border-orange-200"}`}
+                  >
+                    <h4
+                      className={`text-xs font-bold uppercase mb-2 ${activeDiscountType === "promo" ? "text-slate-500" : "text-orange-800"}`}
+                    >
                       Verification Required for Discount
                     </h4>
-                    <div className="space-y-4">
-                      {discountGuests.map((guest, index) => (
-                        <div
-                          key={index}
-                          className="bg-white p-3 rounded-lg border border-orange-100 shadow-sm"
-                        >
-                          <span className="text-[10px] font-bold text-slate-500 uppercase block mb-2">
-                            {guest.type} Guest {index + 1}
-                          </span>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+
+                    {/* The No Stacking Explanation */}
+                    {activeDiscountType === "promo" && (
+                      <p className="text-[10px] text-slate-500 mb-3 bg-white p-2 rounded border border-slate-200">
+                        <span className="font-bold text-orange-600 mr-1">
+                          Note:
+                        </span>
+                        Your Promo Code offers a higher discount than the
+                        Senior/PWD rate. ID uploads are not required when using
+                        this promo code.
+                      </p>
+                    )}
+
+                    {activeDiscountType === "senior" && (
+                      <div className="space-y-4">
+                        {discountGuests.map((guest, index) => (
+                          <div
+                            key={index}
+                            className="bg-white p-3 rounded-lg border border-orange-100 shadow-sm"
+                          >
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block mb-2">
+                              {guest.type} Guest {index + 1}
+                            </span>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                              <input
+                                type="text"
+                                placeholder="Full Name on ID"
+                                value={guest.name}
+                                onChange={(e) => {
+                                  const newGuests = [...discountGuests];
+                                  newGuests[index].name = e.target.value;
+                                  setDiscountGuests(newGuests);
+                                }}
+                                className="text-sm border border-slate-200 p-2 rounded-md w-full outline-none focus:border-orange-400"
+                                required
+                              />
+                              <input
+                                type="text"
+                                placeholder="ID Number"
+                                value={guest.idNumber}
+                                onChange={(e) => {
+                                  const newGuests = [...discountGuests];
+                                  newGuests[index].idNumber = e.target.value;
+                                  setDiscountGuests(newGuests);
+                                }}
+                                className="text-sm border border-slate-200 p-2 rounded-md w-full outline-none focus:border-orange-400"
+                                required
+                              />
+                            </div>
                             <input
-                              type="text"
-                              placeholder="Full Name on ID"
-                              value={guest.name}
+                              type="file"
+                              accept="image/png, image/jpeg, image/jpg"
                               onChange={(e) => {
                                 const newGuests = [...discountGuests];
-                                newGuests[index].name = e.target.value;
+                                newGuests[index].file =
+                                  e.target.files?.[0] || null;
                                 setDiscountGuests(newGuests);
                               }}
-                              className="text-sm border border-slate-200 p-2 rounded-md w-full outline-none focus:border-orange-400"
-                              required
-                            />
-                            <input
-                              type="text"
-                              placeholder="ID Number"
-                              value={guest.idNumber}
-                              onChange={(e) => {
-                                const newGuests = [...discountGuests];
-                                newGuests[index].idNumber = e.target.value;
-                                setDiscountGuests(newGuests);
-                              }}
-                              className="text-sm border border-slate-200 p-2 rounded-md w-full outline-none focus:border-orange-400"
+                              className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-orange-100 file:text-orange-700 hover:file:bg-orange-200"
                               required
                             />
                           </div>
-                          <input
-                            type="file"
-                            accept="image/png, image/jpeg, image/jpg"
-                            onChange={(e) => {
-                              const newGuests = [...discountGuests];
-                              newGuests[index].file =
-                                e.target.files?.[0] || null;
-                              setDiscountGuests(newGuests);
-                            }}
-                            className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-orange-100 file:text-orange-700 hover:file:bg-orange-200"
-                            required
-                          />
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
+                {/* PROMO CODE INPUT UI */}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <label className="text-xs font-bold text-[#0A1A44] uppercase tracking-wider mb-2 flex items-center gap-1">
+                    <Tag className="w-3 h-3" /> Have a Promo Code?
+                  </label>
+
+                  {appliedPromo ? (
+                    <div className="flex items-center justify-between bg-green-50 border border-green-200 p-3 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black text-green-700 bg-white px-2 py-1 rounded shadow-sm border border-green-100">
+                          {appliedPromo.code}
+                        </span>
+                        <span className="text-xs font-medium text-green-600">
+                          Applied!
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAppliedPromo(null)}
+                        className="text-xs text-slate-400 hover:text-red-500 underline font-medium"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Enter code (e.g. SUMMER2026)"
+                        value={promoCodeInput}
+                        onChange={(e) =>
+                          setPromoCodeInput(e.target.value.toUpperCase())
+                        }
+                        className="flex-1 text-sm border border-slate-200 p-2 rounded-lg outline-none focus:border-[#0A1A44] uppercase font-bold text-slate-700"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleApplyPromo}
+                        disabled={verifyingPromo || !promoCodeInput}
+                        className="bg-[#0A1A44] text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-[#0A1A44]/90 transition-colors disabled:opacity-50 min-w-20 flex items-center justify-center"
+                      >
+                        {verifyingPromo ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          "Apply"
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {/* PRICE SUMMARY */}
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col justify-center mt-2">
-                  {discountAmount > 0 && (
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-xs text-slate-400">Base Price</span>
-                      <span className="text-sm text-slate-400 line-through">
-                        ₱ {baseTotalPrice.toLocaleString()}
-                      </span>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col justify-center mt-2 relative overflow-hidden">
+                  {activeDiscountType === "promo" && seniorPwdDiscount > 0 && (
+                    <div className="absolute top-0 left-0 right-0 bg-blue-100 text-blue-800 text-[9px] font-bold uppercase text-center py-0.5 tracking-wider">
+                      Promo code gives higher savings than Senior discount
+                    </div>
+                  )}
+                  {activeDiscountType === "senior" && appliedPromo && (
+                    <div className="absolute top-0 left-0 right-0 bg-orange-100 text-orange-800 text-[9px] font-bold uppercase text-center py-0.5 tracking-wider">
+                      Senior discount applied (Higher savings than promo)
                     </div>
                   )}
 
-                  {discountAmount > 0 && (
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs text-green-600 font-semibold">
-                        Senior/PWD Discount (20%)
+                  <div
+                    className={`flex justify-between items-center mb-1 ${seniorPwdDiscount > 0 || marketingDiscount > 0 ? "mt-3" : ""}`}
+                  >
+                    <span className="text-xs text-slate-400">Base Price</span>
+                    <span
+                      className={`text-sm ${finalDiscountAmount > 0 ? "text-slate-400 line-through" : "font-medium text-slate-700"}`}
+                    >
+                      ₱ {baseTotalPrice.toLocaleString()}
+                    </span>
+                  </div>
+
+                  {finalDiscountAmount > 0 && (
+                    <div className="flex justify-between items-center mb-2 pb-2 border-b border-slate-200/50">
+                      <span className="text-xs text-green-600 font-semibold flex flex-col">
+                        {activeDiscountType === "senior"
+                          ? "Senior/PWD Discount (20%)"
+                          : `Promo Code (${appliedPromo?.code})`}
                       </span>
                       <span className="text-sm font-bold text-green-600">
                         - ₱{" "}
-                        {discountAmount.toLocaleString(undefined, {
+                        {finalDiscountAmount.toLocaleString(undefined, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}
@@ -833,11 +990,10 @@ export default function BookRoomModal({
                       + ₱1,000
                     </span>
                   </div>
-
                   <p className="text-[9px] text-slate-400 leading-tight mt-2 flex items-start gap-1">
-                    <span className="text-red-400 font-bold">*</span>
-                    The security deposit is fully refundable upon check-out,
-                    subject to room inspection.
+                    <span className="text-red-400 font-bold">*</span>The
+                    security deposit is fully refundable upon check-out, subject
+                    to room inspection.
                   </p>
                 </div>
 
