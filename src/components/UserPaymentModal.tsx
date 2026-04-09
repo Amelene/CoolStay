@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import Image from "next/image"; // ✅ Import Image component
+import Image from "next/image";
 import {
   X,
   Upload,
@@ -23,6 +23,18 @@ interface UserPaymentModalProps {
   onSuccess: () => void;
 }
 
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const base64String = (reader.result as string).split(",")[1];
+      resolve(base64String);
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
+
 export default function UserPaymentModal({
   isOpen,
   onClose,
@@ -31,14 +43,11 @@ export default function UserPaymentModal({
 }: UserPaymentModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [systemStatus, setSystemStatus] = useState<string | null>(null);
 
-  // LOGIC: Downpayment is now strict 20%
   const downpaymentAmount = booking.total_amount * 0.2;
   const [amountToPay, setAmountToPay] = useState<number>(downpaymentAmount);
-
-  // STRICT: User must agree to non-refundable policy
   const [policyAgreed, setPolicyAgreed] = useState(false);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -46,6 +55,7 @@ export default function UserPaymentModal({
       setAmountToPay(downpaymentAmount);
       setFile(null);
       setPolicyAgreed(false);
+      setSystemStatus(null);
     }
   }, [isOpen, booking.total_amount, downpaymentAmount]);
 
@@ -72,9 +82,44 @@ export default function UserPaymentModal({
     const toastId = toast.loading("Verifying payment details...");
 
     try {
+      // -------------------------------------------------------------
+      // 🔍 PHASE 1: AUTOMATED VERIFICATION
+      // -------------------------------------------------------------
+      setSystemStatus("Verifying receipt...");
+
+      const base64Image = await fileToBase64(file);
+
+      const verificationResponse = await fetch("/api/payments/verify-ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          base64Image,
+          mimeType: file.type,
+          expectedAmount: amountToPay,
+        }),
+      });
+
+      const verificationData = await verificationResponse.json();
+
+      if (verificationData.is_valid === false) {
+        toast.error("Verification Failed", {
+          description:
+            verificationData.rejection_reason ||
+            "Invalid receipt detected. Please try again.",
+          duration: 8000,
+        });
+        setLoading(false);
+        setSystemStatus(null);
+        toast.dismiss(toastId);
+        return;
+      }
+
+      // -------------------------------------------------------------
+      // ☁️ PHASE 2: SUPABASE UPLOAD
+      // -------------------------------------------------------------
+      setSystemStatus("Receipt verified! Uploading...");
       const supabase = createClient();
 
-      // 1. Upload Image
       const fileExt = file.name.split(".").pop();
       const fileName = `${booking.id}_${Date.now()}.${fileExt}`;
       const { error: uploadError } = await supabase.storage
@@ -83,12 +128,11 @@ export default function UserPaymentModal({
 
       if (uploadError) throw new Error("Upload failed: " + uploadError.message);
 
-      // 2. Get Public URL
       const { data: urlData } = supabase.storage
         .from("payment-proofs")
         .getPublicUrl(fileName);
 
-      // 3. Record Transaction
+      setSystemStatus("Finalizing booking...");
       const res = await fetch("/api/payments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -103,8 +147,6 @@ export default function UserPaymentModal({
       if (!res.ok) throw new Error("Failed to record payment");
 
       toast.dismiss(toastId);
-
-      // STRICT POST-BOOKING WARNING
       toast.success("Payment Submitted!", {
         description: "Reminder: Your downpayment is non-refundable.",
         duration: 6000,
@@ -119,6 +161,7 @@ export default function UserPaymentModal({
       toast.error(msg);
     } finally {
       setLoading(false);
+      setSystemStatus(null);
     }
   };
 
@@ -190,6 +233,15 @@ export default function UserPaymentModal({
 
             {/* RIGHT: Input & Upload */}
             <div className="p-6 md:p-8 flex flex-col justify-center bg-white relative">
+              {/* VERIFICATION WARNING BANNER */}
+              <div className="mb-4 bg-orange-50 border border-orange-200 text-orange-800 text-xs p-3 rounded-lg flex items-start gap-2">
+                <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-orange-500" />
+                <p>
+                  Our automated system will scan your receipt. Ensure the image
+                  is clear and the <b>amount</b> matches your selection exactly.
+                </p>
+              </div>
+
               {/* AMOUNT SECTION */}
               <div className="mb-6">
                 <label className="block text-sm font-bold text-[#0A1A44] mb-2 uppercase tracking-wide">
@@ -203,7 +255,7 @@ export default function UserPaymentModal({
                   </span>
                   <input
                     type="number"
-                    readOnly // STRICT: User cannot edit
+                    readOnly
                     value={amountToPay}
                     className="w-full pl-10 pr-4 py-4 bg-slate-100 border-2 border-slate-200 rounded-2xl text-2xl font-bold text-slate-500 cursor-not-allowed outline-none"
                   />
@@ -273,7 +325,7 @@ export default function UserPaymentModal({
                   {file ? (
                     <div className="text-center p-4 animate-in zoom-in-50">
                       <CheckCircle className="w-6 h-6 text-green-600 mx-auto mb-1" />
-                      <p className="font-bold text-slate-800 text-xs truncate max-w-[200px]">
+                      <p className="font-bold text-slate-800 text-xs truncate max-w-50">
                         {file.name}
                       </p>
                       <p className="text-[10px] text-green-600 font-bold uppercase">
@@ -313,12 +365,14 @@ export default function UserPaymentModal({
 
               <button
                 onClick={handleSubmit}
-                // STRICT: Disable if no file OR no agreement
                 disabled={loading || !file || !policyAgreed}
                 className="w-full bg-[#0A1A44] hover:bg-[#0A1A44]/90 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-900/10 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {loading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    {systemStatus || "Processing..."}
+                  </>
                 ) : (
                   "Confirm Payment"
                 )}
