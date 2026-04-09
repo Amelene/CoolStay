@@ -6,8 +6,8 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
-  Edit2,
   FileText,
+  MessageSquareWarning,
 } from "lucide-react";
 import { toast } from "sonner";
 import Image from "next/image";
@@ -25,7 +25,7 @@ interface PaymentProofModalProps {
     proof_url: string;
     total_booking_amount: number;
     booking_id: string;
-    status: string; // ✅ Includes the missing status prop
+    status: string;
   } | null;
   onSuccess?: () => void;
   readOnly?: boolean;
@@ -60,22 +60,29 @@ export default function PaymentProofModal({
   readOnly = false,
 }: PaymentProofModalProps) {
   const [loading, setLoading] = useState(false);
-  const [verifiedAmount, setVerifiedAmount] = useState<number | string>("");
+
+  // Rejection Workflow States
+  const [isRejecting, setIsRejecting] = useState(false);
+  const [rejectionRemarks, setRejectionRemarks] = useState("");
 
   const [fullBookingData, setFullBookingData] =
     useState<BookingReceiptData | null>(null);
 
-  // ✅ Auto-lock if the payment is already confirmed
   const isLocked =
     readOnly ||
-    (payment && (payment.status === "completed" || payment.status === "paid"));
+    (payment &&
+      (payment.status === "completed" ||
+        payment.status === "paid" ||
+        payment.status === "failed"));
 
   useEffect(() => {
-    if (payment) {
-      setVerifiedAmount(payment.amount);
+    if (isOpen && payment?.id) {
+      setIsRejecting(false);
+      setRejectionRemarks("");
       fetchBookingDetails(payment.booking_id);
     }
-  }, [payment]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, payment?.id]);
 
   const fetchBookingDetails = async (bookingId: string) => {
     const supabase = createClient();
@@ -100,14 +107,6 @@ export default function PaymentProofModal({
   const handleUpdate = async (status: "completed" | "failed") => {
     if (isLocked) return;
 
-    if (
-      status === "completed" &&
-      (verifiedAmount === "" || Number(verifiedAmount) < 0)
-    ) {
-      toast.error("Please enter a valid amount");
-      return;
-    }
-
     setLoading(true);
     const toastId = toast.loading(
       status === "completed" ? "Verifying payment..." : "Rejecting payment...",
@@ -120,7 +119,11 @@ export default function PaymentProofModal({
         body: JSON.stringify({
           payment_id: payment.id,
           status,
-          verified_amount: Number(verifiedAmount),
+          verified_amount: status === "completed" ? payment.amount : 0, // Automatically uses the exact payment amount
+          description:
+            status === "failed"
+              ? rejectionRemarks
+              : "Payment verified by Admin",
         }),
       });
 
@@ -130,11 +133,12 @@ export default function PaymentProofModal({
       toast.success(
         status === "completed" ? "Payment Verified!" : "Payment Rejected",
       );
+
       if (onSuccess) onSuccess();
       onClose();
     } catch {
       toast.dismiss(toastId);
-      toast.error("An error occurred");
+      toast.error("An error occurred updating the payment");
     } finally {
       setLoading(false);
     }
@@ -142,152 +146,170 @@ export default function PaymentProofModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="bg-white w-full max-w-lg rounded-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        <div className="bg-slate-900 p-4 text-white flex justify-between items-center">
+      <div className="bg-white w-full max-w-lg rounded-2xl flex flex-col max-h-[90vh] shadow-2xl border border-slate-200 overflow-hidden">
+        {/* FIXED HEADER */}
+        <div className="bg-slate-900 p-4 text-white flex justify-between items-center shrink-0">
           <div>
             <h2 className="font-bold text-lg">
               {isLocked ? "Payment Details" : "Verify Payment"}
             </h2>
             <span
               className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                isFullPayment
-                  ? "bg-green-500 text-white"
-                  : "bg-blue-500 text-white"
+                payment.status === "failed"
+                  ? "bg-red-500 text-white"
+                  : isFullPayment
+                    ? "bg-green-500 text-white"
+                    : "bg-blue-500 text-white"
               }`}
             >
-              {paymentTypeLabel}
+              {payment.status === "failed" ? "Rejected" : paymentTypeLabel}
             </span>
           </div>
           <button
             onClick={onClose}
-            className="hover:bg-white/20 p-1 rounded-full"
+            className="hover:bg-white/20 p-1 rounded-full transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto bg-slate-100 p-4 flex items-center justify-center min-h-75">
-          <div className="relative w-full h-full min-h-100">
-            {payment.proof_url ? (
-              <Image
-                src={payment.proof_url}
-                alt="Proof of Payment"
-                fill
-                className="object-contain"
-              />
-            ) : (
-              <div className="text-slate-400">No Image Available</div>
-            )}
-          </div>
-        </div>
-
-        <div className="p-6 bg-white border-t space-y-4">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-xs text-slate-400 uppercase font-bold">
-                Guest Name
-              </p>
-              <p className="font-bold text-slate-800 text-lg">
-                {payment.guest}
-              </p>
-
-              <p className="text-xs text-slate-400 mt-1">
-                Declared:{" "}
-                <span className="font-mono text-slate-600 font-bold">
-                  ₱{payment.amount.toLocaleString()}
-                </span>
-              </p>
-            </div>
-
-            <div className="text-right">
-              <p className="text-xs text-slate-400 uppercase font-bold mb-1">
-                {isLocked ? "Verified Amount" : "Confirm Received"}
-              </p>
-              {isLocked ? (
-                <p className="font-bold text-xl text-green-600">
-                  ₱{payment.amount.toLocaleString()}
-                </p>
+        {/* SCROLLABLE BODY */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col">
+          {/* Image Section */}
+          <div className="bg-[#F5F8FA] p-4 flex items-center justify-center min-h-62.5 shrink-0">
+            <div className="relative w-full h-full min-h-75 rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-white">
+              {payment.proof_url ? (
+                <Image
+                  src={payment.proof_url}
+                  alt="Proof of Payment"
+                  fill
+                  className="object-contain"
+                />
               ) : (
-                <div className="flex items-center gap-1 justify-end">
-                  <span className="text-slate-400 font-bold">₱</span>
-                  <input
-                    type="number"
-                    value={verifiedAmount}
-                    onChange={(e) =>
-                      setVerifiedAmount(
-                        e.target.value === "" ? "" : Number(e.target.value),
-                      )
-                    }
-                    className="w-28 font-bold text-xl text-blue-600 text-right border-b-2 border-slate-200 focus:border-blue-600 outline-none bg-transparent transition-colors"
-                  />
-                  <Edit2 className="w-4 h-4 text-slate-300" />
+                <div className="flex items-center justify-center h-full text-slate-400 font-medium">
+                  No Image Available
                 </div>
               )}
             </div>
           </div>
 
-          {isLocked && fullBookingData && (
-            <div className="pt-2">
-              <PDFDownloadLink
-                document={
-                  <BookingReceipt
-                    booking={fullBookingData}
-                    payments={fullBookingData.payments || []}
-                  />
-                }
-                fileName={`Receipt_${payment.booking_id.substring(0, 8)}.pdf`}
-                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors border border-slate-200"
-              >
-                {({ loading }) =>
-                  loading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <>
-                      <FileText className="w-4 h-4" /> Download Official Receipt
-                    </>
-                  )
-                }
-              </PDFDownloadLink>
-            </div>
-          )}
+          {/* Controls Section */}
+          <div className="p-6 bg-white border-t border-slate-100 space-y-4 shrink-0">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-xs text-slate-400 uppercase font-bold tracking-wider">
+                  Guest Name
+                </p>
+                <p className="font-black text-slate-800 text-lg">
+                  {payment.guest}
+                </p>
+              </div>
 
-          {!isLocked && (
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                onClick={() => handleUpdate("failed")}
-                disabled={loading}
-                className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
-              >
-                <XCircle className="w-5 h-5" /> Reject
-              </button>
-              <button
-                onClick={() => handleUpdate("completed")}
-                disabled={loading}
-                className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-white bg-green-600 hover:bg-green-700 shadow-lg shadow-green-200 transition-all active:scale-95"
-              >
-                {loading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <>
-                    <CheckCircle className="w-5 h-5" />
-                    Confirm{" "}
-                    {Number(verifiedAmount) !== payment.amount
-                      ? "Correction"
-                      : "Approve"}
-                  </>
-                )}
-              </button>
+              <div className="text-right">
+                <p className="text-xs text-slate-400 uppercase font-bold mb-1 tracking-wider">
+                  {isLocked ? "Verified Amount" : "Declared Amount"}
+                </p>
+                <p
+                  className={`font-black text-xl ${payment.status === "failed" ? "text-red-500 line-through opacity-70" : "text-blue-600"}`}
+                >
+                  ₱{payment.amount.toLocaleString()}
+                </p>
+              </div>
             </div>
-          )}
 
-          {!isLocked &&
-            verifiedAmount !== "" &&
-            Number(verifiedAmount) !== payment.amount && (
-              <div className="bg-yellow-50 text-yellow-700 p-2 rounded-lg text-xs text-center border border-yellow-200">
-                ⚠️ You are changing the amount from <b>₱{payment.amount}</b> to{" "}
-                <b>₱{verifiedAmount}</b>.
+            {/* Download Receipt Button (Only if successful) */}
+            {isLocked && payment.status !== "failed" && fullBookingData && (
+              <div className="pt-2 border-t border-slate-100">
+                <PDFDownloadLink
+                  document={
+                    <BookingReceipt
+                      booking={fullBookingData}
+                      payments={fullBookingData.payments || []}
+                    />
+                  }
+                  fileName={`Receipt_${payment.booking_id.substring(0, 8)}.pdf`}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all border border-slate-200 shadow-sm"
+                >
+                  {({ loading }) =>
+                    loading ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                    ) : (
+                      <>
+                        <FileText className="w-4 h-4 text-blue-500" /> Download
+                        Official Receipt
+                      </>
+                    )
+                  }
+                </PDFDownloadLink>
               </div>
             )}
+
+            {/* Action Buttons (Approve / Reject Workflow) */}
+            {!isLocked && (
+              <div className="pt-2 border-t border-slate-100">
+                {isRejecting ? (
+                  <div className="space-y-3 animate-in slide-in-from-bottom-2 duration-200">
+                    <div className="relative">
+                      <MessageSquareWarning className="absolute left-3 top-3 w-5 h-5 text-red-400" />
+                      <textarea
+                        placeholder="Why is this receipt being rejected? (e.g. Blurry, Wrong Amount, Duplicate)"
+                        value={rejectionRemarks}
+                        onChange={(e) => setRejectionRemarks(e.target.value)}
+                        disabled={loading}
+                        className="w-full pl-10 pr-3 py-3 border border-red-200 bg-red-50/30 rounded-xl text-sm focus:ring-2 focus:ring-red-500 outline-none resize-none h-24 placeholder:text-red-300 text-red-900 font-medium disabled:opacity-50"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setIsRejecting(false);
+                          setRejectionRemarks("");
+                        }}
+                        disabled={loading}
+                        className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => handleUpdate("failed")}
+                        disabled={loading || !rejectionRemarks.trim()}
+                        className="flex-1 py-3 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-red-600/20"
+                      >
+                        {loading ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                          "Confirm Rejection"
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => setIsRejecting(true)}
+                      disabled={loading}
+                      className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-100 transition-colors disabled:opacity-50"
+                    >
+                      <XCircle className="w-5 h-5" /> Reject
+                    </button>
+                    <button
+                      onClick={() => handleUpdate("completed")}
+                      disabled={loading}
+                      className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-white bg-green-600 hover:bg-green-700 shadow-lg shadow-green-600/20 transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      {loading ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <>
+                          <CheckCircle className="w-5 h-5" /> Approve Payment
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
