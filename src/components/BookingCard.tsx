@@ -11,6 +11,7 @@ import {
   Baby,
   Milk,
   Hash,
+  AlertCircle, // Added Alert Icon
 } from "lucide-react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import BookingReceipt from "@/components/pdf/BookingReceipt";
@@ -96,6 +97,15 @@ export default function BookingCard({
     booking.payments?.filter(
       (p) => p.status === "completed" || p.status === "paid",
     ) || [];
+
+  // NEW: Grab failed payments to show the rejection reason
+  const failedPayments =
+    booking.payments?.filter((p) => p.status === "failed") || [];
+  const recentFailedPayment =
+    failedPayments.length > 0
+      ? failedPayments[failedPayments.length - 1]
+      : null;
+
   const totalPaid = validPayments.reduce((sum, p) => sum + p.amount, 0);
   const balance = Math.max(0, booking.total_amount - totalPaid);
   const isFullyPaid = balance <= 0;
@@ -217,6 +227,22 @@ export default function BookingCard({
                 )}
               </div>
             </div>
+
+            {/* NEW: Rejection Warning Banner */}
+            {recentFailedPayment && showPayNow && (
+              <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 p-2.5 rounded-lg">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-[10px] font-bold text-red-700 uppercase tracking-wide">
+                    Payment Rejected
+                  </h4>
+                  <p className="text-xs text-red-600 font-medium mt-0.5 leading-snug">
+                    {recentFailedPayment.description ||
+                      "The uploaded receipt was invalid. Please try again."}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* COMPACT FOOTER */}
