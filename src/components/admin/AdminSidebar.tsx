@@ -1,7 +1,7 @@
 "use client";
 
-import { ROLES, hasAccess } from "@/lib/role_config"; // Added access check
-import { createClient } from "@/lib/supabase/client"; // Added client
+import { ROLES, hasAccess } from "@/lib/role_config";
+import { createClient } from "@/lib/supabase/client";
 import {
   BarChart3,
   BedDouble,
@@ -15,12 +15,15 @@ import {
   Package,
   ShieldCheck,
   UserCog,
-  Waves
+  Waves,
+  Megaphone,
+  Receipt, // Added for Expenses
+  KanbanSquare, // Added for Tasks
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react"; // Added hooks
+import { useEffect, useState } from "react";
 
 // Grouped Menu Structure
 const menuGroups = [
@@ -57,6 +60,7 @@ const menuGroups = [
     items: [
       { name: "Customer Management", href: "/admin/customers", icon: UserCog },
       { name: "Staff Management", href: "/admin/staff", icon: IdCard },
+      { name: "Staff Tasks", href: "/admin/tasks", icon: KanbanSquare }, // <-- NEW: Task Board
       {
         name: "Guest Engagement",
         href: "/admin/feedback",
@@ -68,18 +72,18 @@ const menuGroups = [
     title: "Finance & Reports",
     items: [
       { name: "Billing & Invoices", href: "/admin/billing", icon: FileText },
+      { name: "Expenses", href: "/admin/expenses", icon: Receipt }, // <-- NEW: Expense Ledger
       { name: "Reports & Analytics", href: "/admin/reports", icon: BarChart3 },
     ],
   },
   {
     title: "System",
     items: [
-      // Hide for next feature
-      // {
-      //   name: "Discounts & Promos",
-      //   href: "/admin/promotions",
-      //   icon: Megaphone,
-      // },
+      {
+        name: "Discounts & Promos",
+        href: "/admin/promotions",
+        icon: Megaphone,
+      },
       { name: "Activity Logs", href: "/admin/activity-logs", icon: History },
       { name: "Security", href: "/admin/security", icon: ShieldCheck },
     ],
@@ -90,7 +94,6 @@ export default function AdminSidebar() {
   const pathname = usePathname();
   const [userRole, setUserRole] = useState<string | null>(null);
 
-  // ✅ 1. Fetch User Role on Mount
   useEffect(() => {
     const fetchRole = async () => {
       const supabase = createClient();
@@ -109,12 +112,9 @@ export default function AdminSidebar() {
     fetchRole();
   }, []);
 
-  // Optional: Show loading state or empty while fetching role to prevent flickering
-  // if (!userRole) return null;
-
   return (
     <aside className="fixed top-0 left-0 h-full w-64 bg-[#9ecbf7] z-40 hidden lg:flex flex-col font-sans">
-      {/* Brand Header (Preserved Original Style) */}
+      {/* Brand Header */}
       <div className="h-16 flex items-center justify-center gap-3 bg-[#0A1A44] shadow-md z-50 shrink-0">
         <div className="relative h-8 w-8 rounded-full overflow-hidden border-2 border-white/20">
           <Image
@@ -129,16 +129,14 @@ export default function AdminSidebar() {
         </h1>
       </div>
 
-      {/* Navigation Menu (Updated with Groups) */}
+      {/* Navigation Menu */}
       <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-6 custom-scrollbar border-r border-blue-300/50">
         {menuGroups.map((group, index) => {
-          // ✅ 2. Filter Items based on Role
-          // If userRole is not loaded yet, we hide everything to be safe (or show nothing)
+          // Filter Items based on Role
           const visibleItems = userRole
             ? group.items.filter((item) => hasAccess(item.href, userRole))
             : [];
 
-          // Hide empty groups
           if (visibleItems.length === 0) return null;
 
           return (

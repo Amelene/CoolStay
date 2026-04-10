@@ -121,6 +121,7 @@ function AccommodationContent() {
               price_day: data.price_day,
               price_night: data.price_night,
               price_overnight: data.price_overnight,
+              capacity: data.capacity,
             });
             router.replace("/accommodation", { scroll: false });
           }
@@ -402,7 +403,7 @@ function AccommodationContent() {
         />
       )}
 
-      <div className="pt-28 pb-20 px-4 sm:px-8 max-w-[1440px] mx-auto">
+      <div className="pt-28 pb-20 px-4 sm:px-8 max-w-360 mx-auto">
         {/* HEADER SECTION (Same as before) */}
         <div className="relative bg-[#0077B6] rounded-3xl p-6 md:p-8 shadow-xl text-white mb-12 mt-8 animate-in slide-in-from-top-10 duration-700">
           <div className="absolute -top-12 left-1/2 -translate-x-1/2 h-24 w-24 bg-white rounded-full border-4 border-white shadow-md flex items-center justify-center overflow-hidden z-10">
@@ -528,7 +529,7 @@ function AccommodationContent() {
               </div>
 
               {showGuestMenu && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-slate-100 p-4 z-50 animate-in zoom-in-95 origin-top min-w-[280px]">
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-slate-100 p-4 z-50 animate-in zoom-in-95 origin-top min-w-70">
                   {/* Adults Row */}
                   <div className="flex justify-between items-center mb-4">
                     <div>
@@ -672,7 +673,7 @@ function AccommodationContent() {
                     ? "Available Rooms"
                     : "All Accommodations"}
                 </h2>
-                
+
                 {/* Search Bar */}
                 <div className="w-full lg:max-w-md">
                   <div className="relative">
@@ -699,67 +700,75 @@ function AccommodationContent() {
               {/* Filter Buttons + Results Count */}
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 px-2">
                 <div className="flex gap-2 flex-wrap">
-                    <button
-                      onClick={() => setCategoryFilter("all")}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
-                        categoryFilter === "all"
-                          ? "bg-[#0A1A44] text-white shadow-md"
-                          : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
-                      }`}
-                    >
-                      All
-                    </button>
-                    <button
-                      onClick={() => setCategoryFilter("room")}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
-                        categoryFilter === "room"
-                          ? "bg-[#0A1A44] text-white shadow-md"
-                          : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
-                      }`}
-                    >
-                      Rooms
-                    </button>
-                    <button
-                      onClick={() => setCategoryFilter("cottage")}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
-                        categoryFilter === "cottage"
-                          ? "bg-[#0A1A44] text-white shadow-md"
-                          : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
-                      }`}
-                    >
-                      Cottages
-                    </button>
-                    <button
-                      onClick={() => setCategoryFilter("event")}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
-                        categoryFilter === "event"
-                          ? "bg-[#0A1A44] text-white shadow-md"
-                          : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
-                      }`}
-                    >
-                      Events
-                    </button>
+                  <button
+                    onClick={() => setCategoryFilter("all")}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
+                      categoryFilter === "all"
+                        ? "bg-[#0A1A44] text-white shadow-md"
+                        : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => setCategoryFilter("room")}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
+                      categoryFilter === "room"
+                        ? "bg-[#0A1A44] text-white shadow-md"
+                        : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
+                    }`}
+                  >
+                    Rooms
+                  </button>
+                  <button
+                    onClick={() => setCategoryFilter("cottage")}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
+                      categoryFilter === "cottage"
+                        ? "bg-[#0A1A44] text-white shadow-md"
+                        : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
+                    }`}
+                  >
+                    Cottages
+                  </button>
+                  <button
+                    onClick={() => setCategoryFilter("event")}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
+                      categoryFilter === "event"
+                        ? "bg-[#0A1A44] text-white shadow-md"
+                        : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
+                    }`}
+                  >
+                    Events
+                  </button>
                 </div>
-                
+
                 <span className="text-sm font-bold text-[#0077B6] bg-white px-3 py-1 rounded-full shadow-sm shrink-0">
-                  {rooms.filter((room) => {
-                    // Category filter
-                    let matchesCategory = true;
-                    if (categoryFilter === "room") {
-                      matchesCategory = room.id.startsWith("rm_");
-                    } else if (categoryFilter === "cottage") {
-                      matchesCategory = room.id.startsWith("cot_");
-                    } else if (categoryFilter === "event") {
-                      matchesCategory = room.id.startsWith("evt_");
-                    }
-                    
-                    // Search filter
-                    const matchesSearch = searchQuery === "" || 
-                      room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                      room.description.toLowerCase().includes(searchQuery.toLowerCase());
-                    
-                    return matchesCategory && matchesSearch;
-                  }).length} Results
+                  {
+                    rooms.filter((room) => {
+                      // Category filter
+                      let matchesCategory = true;
+                      if (categoryFilter === "room") {
+                        matchesCategory = room.id.startsWith("rm_");
+                      } else if (categoryFilter === "cottage") {
+                        matchesCategory = room.id.startsWith("cot_");
+                      } else if (categoryFilter === "event") {
+                        matchesCategory = room.id.startsWith("evt_");
+                      }
+
+                      // Search filter
+                      const matchesSearch =
+                        searchQuery === "" ||
+                        room.name
+                          .toLowerCase()
+                          .includes(searchQuery.toLowerCase()) ||
+                        room.description
+                          .toLowerCase()
+                          .includes(searchQuery.toLowerCase());
+
+                      return matchesCategory && matchesSearch;
+                    }).length
+                  }{" "}
+                  Results
                 </span>
               </div>
               {rooms
@@ -773,42 +782,49 @@ function AccommodationContent() {
                   } else if (categoryFilter === "event") {
                     matchesCategory = room.id.startsWith("evt_");
                   }
-                  
+
                   // Search filter
-                  const matchesSearch = searchQuery === "" || 
-                    room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    room.description.toLowerCase().includes(searchQuery.toLowerCase());
-                  
+                  const matchesSearch =
+                    searchQuery === "" ||
+                    room.name
+                      .toLowerCase()
+                      .includes(searchQuery.toLowerCase()) ||
+                    room.description
+                      .toLowerCase()
+                      .includes(searchQuery.toLowerCase());
+
                   return matchesCategory && matchesSearch;
                 })
                 .map((room) => (
-                <RoomCard
-                  key={room.id}
-                  id={room.id}
-                  title={room.name}
-                  description={room.description}
-                  imageSrc={
-                    room.image_url || "/images/background/coolstaybg.png"
-                  }
-                  size={room.amenities?.[0] || "Standard"}
-                  features={room.amenities || []}
-                  price={room.base_price}
-                  priceDay={room.price_day}
-                  priceNight={room.price_night}
-                  priceOvernight={room.price_overnight}
-                  onBook={(roomData) => {
-                    if (!currentUser) {
-                      router.push(`/login?return_to=${encodeURIComponent('/accommodation')}`);
-                      return;
+                  <RoomCard
+                    key={room.id}
+                    id={room.id}
+                    title={room.name}
+                    description={room.description}
+                    imageSrc={
+                      room.image_url || "/images/background/coolstaybg.png"
                     }
-                    setSelectedRoom(roomData);
-                  }}
-                  // ✅ Passing Props to Card
-                  capacity={room.capacity}
-                  rating={room.avg_rating}
-                  reviewCount={room.review_count}
-                />
-              ))}
+                    size={room.amenities?.[0] || "Standard"}
+                    features={room.amenities || []}
+                    price={room.base_price}
+                    priceDay={room.price_day}
+                    priceNight={room.price_night}
+                    priceOvernight={room.price_overnight}
+                    onBook={(roomData) => {
+                      if (!currentUser) {
+                        router.push(
+                          `/login?return_to=${encodeURIComponent("/accommodation")}`,
+                        );
+                        return;
+                      }
+                      setSelectedRoom(roomData);
+                    }}
+                    // ✅ Passing Props to Card
+                    capacity={room.capacity}
+                    rating={room.avg_rating}
+                    reviewCount={room.review_count}
+                  />
+                ))}
             </>
           )}
         </div>

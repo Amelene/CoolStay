@@ -16,6 +16,8 @@ export const ROUTE_PERMISSIONS: Record<string, UserRole[]> = {
   "/admin/inquiries": [ROLES.ADMIN, ROLES.FRONT_DESK],
   "/admin/bookings": [ROLES.ADMIN, ROLES.FRONT_DESK],
   "/admin/feedback": [ROLES.ADMIN, ROLES.FRONT_DESK],
+  "/admin/tasks": [ROLES.ADMIN, ROLES.FRONT_DESK],
+  "/admin/expenses": [ROLES.ADMIN, ROLES.FRONT_DESK],
   // Restricted Areas
   "/admin/inventory": [ROLES.ADMIN],
   "/admin/staff": [ROLES.ADMIN],
@@ -27,7 +29,7 @@ export const ROUTE_PERMISSIONS: Record<string, UserRole[]> = {
 
 export const hasAccess = (path: string, role: string) => {
   const key = Object.keys(ROUTE_PERMISSIONS).find((route) =>
-    path.startsWith(route)
+    path.startsWith(route),
   );
 
   if (!key) return true;

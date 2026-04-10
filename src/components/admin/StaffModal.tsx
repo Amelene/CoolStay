@@ -12,7 +12,9 @@ import { z } from "zod";
 interface StaffMember {
   id?: number;
   employee_id: string;
-  full_name: string;
+  first_name: string;
+  last_name: string;
+  middle_name?: string;
   email: string;
   phone: string;
   position: string;
@@ -29,23 +31,20 @@ interface StaffModalProps {
   staffToEdit?: StaffMember | null;
 }
 
-// ✅ Minimum salary requirements per department
 const MIN_SALARY_BY_DEPT: Record<string, number> = {
   "Front Desk": 12000,
-  "Housekeeping": 12000,
-  "Maintenance": 17000,
-  "Security": 12000,
-  "Management": 15000,
+  Housekeeping: 12000,
+  Maintenance: 17000,
+  Security: 12000,
+  Management: 15000,
 };
 
-// ✅ UPDATED: Extend schema to override 'phone' with strict PH validation
 const StaffFormSchema = StaffSchema.extend({
   role: z.string().optional(),
   phone: z.string().regex(/^09\d{9}$/, {
     message: "Must be a valid 11-digit PH mobile number (e.g., 09xxxxxxxxx)",
   }),
 }).superRefine((data, ctx) => {
-  // ✅ Validate salary based on department
   const minSalary = MIN_SALARY_BY_DEPT[data.department] || 12000;
   if (data.salary < minSalary) {
     ctx.addIssue({
@@ -85,7 +84,9 @@ export default function StaffModal({
     mode: "onChange",
     defaultValues: {
       employee_id: "",
-      full_name: "",
+      first_name: "",
+      last_name: "",
+      middle_name: "",
       email: "",
       phone: "",
       position: "Staff",
@@ -107,9 +108,8 @@ export default function StaffModal({
     }
   }, [selectedRole, setValue, staffToEdit]);
 
-  // ✅ Auto-adjust salary when department changes if below minimum
   useEffect(() => {
-    if (selectedDepartment && typeof currentSalary === 'number') {
+    if (selectedDepartment && typeof currentSalary === "number") {
       const minSalary = MIN_SALARY_BY_DEPT[selectedDepartment] || 12000;
       if (currentSalary < minSalary) {
         setValue("salary", minSalary);
@@ -122,7 +122,9 @@ export default function StaffModal({
       if (staffToEdit) {
         reset({
           employee_id: staffToEdit.employee_id,
-          full_name: staffToEdit.full_name,
+          first_name: staffToEdit.first_name,
+          last_name: staffToEdit.last_name,
+          middle_name: staffToEdit.middle_name || "",
           email: staffToEdit.email,
           phone: staffToEdit.phone,
           position: staffToEdit.position,
@@ -138,7 +140,9 @@ export default function StaffModal({
 
         reset({
           employee_id: randomId,
-          full_name: "",
+          first_name: "",
+          last_name: "",
+          middle_name: "",
           email: "",
           phone: "",
           position: "Staff",
@@ -157,7 +161,7 @@ export default function StaffModal({
   const onSubmit = async (data: StaffFormValues) => {
     setLoading(true);
     const toastId = toast.loading(
-      staffToEdit ? "Updating profile..." : "Inviting & Onboarding..."
+      staffToEdit ? "Updating profile..." : "Inviting & Onboarding...",
     );
 
     try {
@@ -169,7 +173,8 @@ export default function StaffModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             email: data.email,
-            fullName: data.full_name,
+            // Auth still expects a single string for display name
+            fullName: `${data.first_name} ${data.last_name}`.trim(),
             role: data.role || "front_desk",
           }),
         });
@@ -206,7 +211,7 @@ export default function StaffModal({
       toast.success(
         staffToEdit
           ? "Staff member updated!"
-          : "Invitation sent & Profile created!"
+          : "Invitation sent & Profile created!",
       );
       onSuccess();
       onClose();
@@ -229,7 +234,7 @@ export default function StaffModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="bg-[#0A1A44] p-5 text-white flex justify-between items-center shrink-0">
           <div>
@@ -281,46 +286,89 @@ export default function StaffModal({
             </div>
           )}
 
-          {/* Employee ID & Name */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Employee ID */}
+          <div>
+            <label className="flex items-center gap-1 text-xs font-bold text-slate-500 uppercase mb-1">
+              Employee ID
+              {!staffToEdit && <Wand2 className="w-3 h-3 text-purple-500" />}
+            </label>
+            <input
+              {...register("employee_id")}
+              placeholder="EMP-XXXX"
+              className={`${inputClass(
+                !!errors.employee_id,
+              )} bg-slate-100 text-slate-500`}
+              readOnly
+            />
+            {errors.employee_id && (
+              <p className="text-xs text-red-500">
+                {errors.employee_id.message as string}
+              </p>
+            )}
+          </div>
+
+          {/* Names Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="flex items-center gap-1 text-xs font-bold text-slate-500 uppercase mb-1">
-                Employee ID
-                {!staffToEdit && <Wand2 className="w-3 h-3 text-purple-500" />}
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
+                First Name
               </label>
               <input
-                {...register("employee_id")}
-                placeholder="EMP-XXXX"
-                className={`${inputClass(
-                  !!errors.employee_id
-                )} bg-slate-100 text-slate-500`}
-                readOnly
-              />
-              {errors.employee_id && (
-                <p className="text-xs text-red-500">
-                  {errors.employee_id.message as string}
-                </p>
-              )}
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                Full Name
-              </label>
-              <input
-                {...register("full_name", {
+                {...register("first_name", {
                   onChange: (e) => {
                     e.target.value = e.target.value.replace(
                       /[^a-zA-Z\s\-\.\']/g,
-                      ""
+                      "",
                     );
                   },
                 })}
-                placeholder="John Doe"
-                className={inputClass(!!errors.full_name)}
+                placeholder="Juan"
+                className={inputClass(!!errors.first_name)}
               />
-              {errors.full_name && (
+              {errors.first_name && (
                 <p className="text-xs text-red-500">
-                  {errors.full_name.message as string}
+                  {errors.first_name.message as string}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+                Middle Name
+              </label>
+              <input
+                {...register("middle_name", {
+                  onChange: (e) => {
+                    e.target.value = e.target.value.replace(
+                      /[^a-zA-Z\s\-\.\']/g,
+                      "",
+                    );
+                  },
+                })}
+                placeholder="Rizal"
+                className={inputClass(!!errors.middle_name)}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
+                Last Name
+              </label>
+              <input
+                {...register("last_name", {
+                  onChange: (e) => {
+                    e.target.value = e.target.value.replace(
+                      /[^a-zA-Z\s\-\.\']/g,
+                      "",
+                    );
+                  },
+                })}
+                placeholder="Dela Cruz"
+                className={inputClass(!!errors.last_name)}
+              />
+              {errors.last_name && (
+                <p className="text-xs text-red-500">
+                  {errors.last_name.message as string}
                 </p>
               )}
             </div>
@@ -329,7 +377,7 @@ export default function StaffModal({
           {/* Email & Phone */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
                 Email
               </label>
               <input
@@ -344,21 +392,17 @@ export default function StaffModal({
               )}
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
                 Phone
               </label>
               <input
                 {...register("phone", {
-                  // ✅ FIX: Strict Input Masking
                   onChange: (e) => {
-                    // 1. Allow only numbers
                     let val = e.target.value.replace(/[^0-9]/g, "");
-                    // 2. Limit to 11 digits
                     if (val.length > 11) val = val.slice(0, 11);
                     e.target.value = val;
                   },
                 })}
-                // HTML constraint for better mobile keyboard
                 type="tel"
                 maxLength={11}
                 placeholder="09xxxxxxxxx"
@@ -375,7 +419,7 @@ export default function StaffModal({
           {/* Dept & Position */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
                 Department
               </label>
               <select
@@ -393,7 +437,7 @@ export default function StaffModal({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
                 Position
               </label>
               <input
@@ -406,7 +450,7 @@ export default function StaffModal({
           {/* Status & Salary */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
                 Status
               </label>
               <select
@@ -419,7 +463,7 @@ export default function StaffModal({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
                 Salary (₱)
               </label>
               <input
@@ -437,7 +481,9 @@ export default function StaffModal({
               )}
               {!errors.salary && selectedDepartment && (
                 <p className="text-xs text-slate-400 mt-1">
-                  Min: ₱{MIN_SALARY_BY_DEPT[selectedDepartment]?.toLocaleString() || "12,000"}
+                  Min: ₱
+                  {MIN_SALARY_BY_DEPT[selectedDepartment]?.toLocaleString() ||
+                    "12,000"}
                 </p>
               )}
             </div>
@@ -445,7 +491,7 @@ export default function StaffModal({
 
           {/* Date Hired */}
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
               Date Hired
             </label>
             <input

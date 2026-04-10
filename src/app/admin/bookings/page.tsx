@@ -77,6 +77,9 @@ interface Booking {
   total_amount: number;
   payment_status: string;
   special_requests?: string;
+  security_deposit_amount?: number;
+  security_deposit_status?: string;
+  security_deposit_notes?: string;
   users: UserProfile | null;
   room_types: RoomType | null;
   payments?: Payment[];
@@ -102,7 +105,7 @@ interface StatCardProps {
 // --- STATS COMPONENT ---
 function StatCard({ label, count, icon: Icon, color }: StatCardProps) {
   return (
-    <div className="relative overflow-hidden bg-white p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex items-center gap-5 flex-1 min-w-[220px] group transition-all hover:-translate-y-1 hover:shadow-lg">
+    <div className="relative overflow-hidden bg-white p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex items-center gap-5 flex-1 min-w-55 group transition-all hover:-translate-y-1 hover:shadow-lg">
       <div
         className={`absolute right-0 top-0 w-24 h-24 -mr-6 -mt-6 rounded-full opacity-10 transition-transform group-hover:scale-150 ${color}`}
       ></div>
@@ -149,6 +152,9 @@ export default function AdminBookingsPage() {
     amount: number;
   } | null>(null);
   const [noShowConfirmId, setNoShowConfirmId] = useState<string | null>(null);
+  const [checkInConfirm, setCheckInConfirm] = useState<Booking | null>(null);
+  const [checkOutConfirm, setCheckOutConfirm] = useState<Booking | null>(null);
+  const [damageNotes, setDamageNotes] = useState("");
 
   // ✅ FETCH FUNCTION (Memoized for stability)
   const fetchBookings = useCallback(async (isAutoRefresh = false) => {
@@ -186,7 +192,12 @@ export default function AdminBookingsPage() {
     return () => clearInterval(intervalId);
   }, [fetchBookings]);
 
-  const handleStatusUpdate = async (id: string, newStatus: string) => {
+  const handleStatusUpdate = async (
+    id: string,
+    newStatus: string,
+    depositStatus?: string,
+    depositNotes?: string,
+  ) => {
     if (newStatus === "no_show" && !noShowConfirmId) {
       setNoShowConfirmId(id);
       return;
@@ -196,10 +207,22 @@ export default function AdminBookingsPage() {
     const toastId = toast.loading("Updating...");
 
     try {
+      interface UpdatePayload {
+        id: string;
+        status: string;
+        security_deposit_status?: string;
+        security_deposit_notes?: string;
+      }
+
+      const payload: UpdatePayload = { id, status: newStatus };
+
+      if (depositStatus) payload.security_deposit_status = depositStatus;
+      if (depositNotes) payload.security_deposit_notes = depositNotes;
+
       const res = await fetch("/api/admin/bookings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status: newStatus }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("Failed");
 
@@ -368,6 +391,8 @@ export default function AdminBookingsPage() {
               onReceivePayment={(bookingId, guestName, balance) =>
                 setTransactionPrefill({ bookingId, guestName, amount: balance })
               }
+              onCheckInClick={(b) => setCheckInConfirm(b)} // ✅ Passed down
+              onCheckOutClick={(b) => setCheckOutConfirm(b)} // ✅ Passed down
             />
           ))
         )}
@@ -466,6 +491,150 @@ export default function AdminBookingsPage() {
           </div>
         </div>
       )}
+
+      {/* ✅ CHECK-IN SECURITY DEPOSIT MODAL */}
+      {checkInConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-2xl p-6 shadow-2xl max-w-md w-full animate-in zoom-in-95">
+            <div className="flex flex-col items-center text-center gap-4">
+              <div className="p-3 bg-orange-50 text-orange-600 rounded-full">
+                <AlertTriangle className="w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">
+                  Collect Security Deposit
+                </h3>
+                <p className="text-sm text-orange-800 mt-2">
+                  Before handing over the keys, you must collect the incidental
+                  deposit.
+                </p>
+                <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">
+                    Amount Due Now
+                  </p>
+                  <p className="text-2xl font-serif font-bold text-[#0A1A44]">
+                    ₱1,000
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-3 w-full mt-4">
+                <button
+                  onClick={() => setCheckInConfirm(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-slate-50 transition-colors text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    handleStatusUpdate(checkInConfirm.id, "checked_in", "held");
+                    setCheckInConfirm(null);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-green-600 text-white font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-200 text-sm flex justify-center items-center gap-2"
+                >
+                  <CheckCircle className="w-4 h-4" /> Collected & Check In
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ CHECK-OUT / DEPOSIT CLEARANCE MODAL */}
+      {checkOutConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in p-4">
+          <div className="bg-white rounded-2xl p-6 shadow-2xl max-w-md w-full animate-in zoom-in-95">
+            <h3 className="text-lg font-bold text-slate-800 mb-1">
+              Room Clearance & Check Out
+            </h3>
+            <p className="text-sm text-slate-500 mb-6">
+              Has the room been inspected for damages? Please resolve the ₱1,000
+              security deposit.
+            </p>
+
+            <div className="space-y-4">
+              {/* Option 1: Clean */}
+              <button
+                onClick={() => {
+                  handleStatusUpdate(
+                    checkOutConfirm.id,
+                    "checked_out",
+                    "refunded",
+                  );
+                  setCheckOutConfirm(null);
+                }}
+                className="w-full p-4 border border-green-200 bg-green-50 hover:bg-green-100 rounded-xl flex items-start gap-4 transition-colors text-left group"
+              >
+                <div className="bg-white p-2 rounded-full shadow-sm text-green-600 group-hover:scale-110 transition-transform">
+                  <CheckCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="font-bold text-green-800 text-sm">
+                    Room is Clear (Refund Deposit)
+                  </p>
+                  <p className="text-xs text-green-700 mt-1">
+                    Return the ₱1,000 cash to the guest and finalize check-out.
+                  </p>
+                </div>
+              </button>
+
+              <div className="relative flex items-center py-2">
+                <div className="grow border-t border-slate-200"></div>
+                <span className="shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase">
+                  OR
+                </span>
+                <div className="grow border-t border-slate-200"></div>
+              </div>
+
+              {/* Option 2: Damage */}
+              <div className="p-4 border border-red-200 bg-red-50 rounded-xl space-y-3">
+                <div className="flex items-start gap-4">
+                  <div className="bg-white p-2 rounded-full shadow-sm text-red-600 shrink-0">
+                    <AlertOctagon className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-red-800 text-sm">
+                      Damages Found (Forfeit Deposit)
+                    </p>
+                    <p className="text-xs text-red-700 mt-1">
+                      Keep the ₱1,000 to cover resort damages.
+                    </p>
+                  </div>
+                </div>
+                <textarea
+                  value={damageNotes}
+                  onChange={(e) => setDamageNotes(e.target.value)}
+                  placeholder="Describe the damages (Required)..."
+                  className="w-full text-sm p-3 rounded-lg border border-red-200 focus:ring-2 ring-red-500 outline-none"
+                  rows={2}
+                />
+                <button
+                  disabled={!damageNotes.trim()}
+                  onClick={() => {
+                    handleStatusUpdate(
+                      checkOutConfirm.id,
+                      "checked_out",
+                      "forfeited",
+                      damageNotes,
+                    );
+                    setCheckOutConfirm(null);
+                    setDamageNotes("");
+                  }}
+                  className="w-full py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg transition-colors"
+                >
+                  Forfeit Deposit & Check Out
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setCheckOutConfirm(null)}
+              className="w-full mt-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -477,6 +646,8 @@ interface BookingCardProps {
   processingId: string | null;
   onVerifyProof: (payment: PaymentVerification) => void;
   onReceivePayment: (id: string, name: string, balance: number) => void;
+  onCheckInClick: (booking: Booking) => void; // ✅ NEW
+  onCheckOutClick: (booking: Booking) => void; // ✅ NEW
 }
 
 function BookingCard({
@@ -485,6 +656,8 @@ function BookingCard({
   processingId,
   onVerifyProof,
   onReceivePayment,
+  onCheckInClick,
+  onCheckOutClick,
 }: BookingCardProps) {
   const [expanded, setExpanded] = useState(false);
   const isProcessing = processingId === booking.id;
@@ -580,7 +753,7 @@ function BookingCard({
               {booking.users?.full_name || "Guest"}
             </h3>
             <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500">
-              <span className="bg-slate-50 px-2 py-0.5 rounded border border-slate-100 font-medium truncate max-w-[140px] flex items-center gap-1">
+              <span className="bg-slate-50 px-2 py-0.5 rounded border border-slate-100 font-medium truncate max-w-35 flex items-center gap-1">
                 <BedDouble className="w-3 h-3" /> {booking.room_types?.name}
               </span>
             </div>
@@ -759,7 +932,7 @@ function BookingCard({
                   color="bg-green-600 text-white hover:bg-green-700"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onUpdate(booking.id, "checked_in");
+                    onCheckInClick(booking);
                   }}
                   isLoading={isProcessing}
                   disabled={isEarly}
@@ -774,7 +947,7 @@ function BookingCard({
                 color="bg-slate-800 text-white hover:bg-black"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onUpdate(booking.id, "checked_out");
+                  onCheckOutClick(booking); // ✅ Changed
                 }}
                 isLoading={isProcessing}
               />

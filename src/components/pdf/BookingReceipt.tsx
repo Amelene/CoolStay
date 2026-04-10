@@ -67,6 +67,26 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
 
+  depositBox: {
+    marginTop: 30,
+    padding: 10,
+    backgroundColor: "#f8fafc",
+    border: "1px dashed #cbd5e1",
+    borderRadius: 4,
+  },
+  depositTitle: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: "#0A1A44",
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  depositText: {
+    fontSize: 10,
+    color: "#64748B",
+    lineHeight: 1.4,
+  },
+
   footer: {
     position: "absolute",
     bottom: 40,
@@ -82,7 +102,6 @@ const styles = StyleSheet.create({
 const formatCurrency = (num: number) =>
   `PHP ${num.toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
 
-// Defined Types to replace 'any'
 interface Payment {
   amount: number;
   status: string;
@@ -97,6 +116,7 @@ interface Booking {
   check_in_date: string;
   check_out_date: string;
   guests_count: number;
+  security_deposit_status?: string;
   users?: {
     full_name: string | null;
     email: string | null;
@@ -235,6 +255,27 @@ export default function BookingReceipt({ booking, payments }: ReceiptProps) {
               {formatCurrency(balance)}
             </Text>
           </View>
+        </View>
+
+        {/* ✅ SECURITY DEPOSIT CALLOUT */}
+        <View style={styles.depositBox}>
+          <Text style={styles.depositTitle}>
+            Important: Cash Security Deposit
+          </Text>
+          <Text style={styles.depositText}>
+            A refundable incidental deposit of PHP 1,000.00 is required upon
+            check-in. This must be paid in CASH at the front desk and is
+            completely separate from your room balance. The deposit will be
+            fully refunded upon check-out, subject to a room damage inspection.
+          </Text>
+          <Text
+            style={[styles.depositTitle, { marginTop: 6, color: "#ca8a04" }]}
+          >
+            Status:{" "}
+            {booking.security_deposit_status
+              ? booking.security_deposit_status.toUpperCase()
+              : "PENDING AT CHECK-IN"}
+          </Text>
         </View>
 
         {/* FOOTER */}

@@ -40,13 +40,11 @@ interface RoomType {
 }
 
 // --- HELPER: AUTO-BALANCE LOGIC ---
-// Extracted so both POST and PATCH can use it
 async function updateBookingStatus(
   supabase: SupabaseClient,
   bookingId: string,
 ) {
   try {
-    // 1. Fetch Booking
     const { data: booking, error: bookingError } = await supabase
       .from("bookings")
       .select("id, total_amount, status")
@@ -55,7 +53,6 @@ async function updateBookingStatus(
 
     if (bookingError || !booking) return;
 
-    // 2. Fetch All Completed Payments
     const { data: allPayments, error: allPaymentsError } = await supabase
       .from("payments")
       .select("amount")
@@ -64,8 +61,6 @@ async function updateBookingStatus(
 
     if (allPaymentsError) return;
 
-    // 3. Calculate Math
-    // Explicitly type 'p' to avoid 'any' error
     const totalPaid = (allPayments || []).reduce(
       (sum: number, p: { amount: number | string }) => {
         return sum + Number(p.amount);
@@ -75,7 +70,6 @@ async function updateBookingStatus(
 
     const totalDue = Number(booking.total_amount);
 
-    // 4. Determine New Statuses
     let newPaymentStatus = "pending";
     let newBookingStatus = booking.status;
 
@@ -91,7 +85,6 @@ async function updateBookingStatus(
       }
     }
 
-    // 5. Update the Booking
     await supabase
       .from("bookings")
       .update({
@@ -112,7 +105,6 @@ export async function GET() {
     const { error: authError } = await authorizeAdmin(supabase);
     if (authError) return authError;
 
-    // 2. Fetch All Payments (Raw)
     const { data: rawPayments, error: paymentsError } = await supabase
       .from("payments")
       .select("*")
@@ -121,15 +113,12 @@ export async function GET() {
     if (paymentsError) throw paymentsError;
     const payments = rawPayments as Payment[];
 
-    // 3. Extract Booking IDs
-    // FIXED: Replaced .filter(Boolean) with explicit type guard to remove 'any' error
     const bookingIds = Array.from(
       new Set(
         payments.map((p) => p.booking_id).filter((id): id is string => !!id),
       ),
     );
 
-    // 4. Fetch Related Bookings (Raw)
     const bookingsMap: Record<string, Booking> = {};
     const userIds = new Set<string>();
     const roomTypeIds = new Set<string>();
@@ -149,7 +138,6 @@ export async function GET() {
       });
     }
 
-    // 5. Fetch Users (Raw)
     const usersMap: Record<string, User> = {};
     const userIdArray = Array.from(userIds);
 
@@ -164,7 +152,6 @@ export async function GET() {
       });
     }
 
-    // 6. Fetch Room Types (Raw - for Receipt Name)
     const roomsMap: Record<string, string> = {};
     const roomTypeIdArray = Array.from(roomTypeIds);
 
@@ -179,7 +166,6 @@ export async function GET() {
       });
     }
 
-    // 7. Stitch it all together
     const formatted = payments.map((p) => {
       const booking = p.booking_id ? bookingsMap[p.booking_id] : null;
       const guestId = booking?.guest_id || p.user_id;
@@ -253,7 +239,6 @@ export async function POST(request: Request) {
 
     if (error) throw error;
 
-    // Trigger auto-balance if payment is completed immediately (e.g. Cash)
     if (status === "completed" && booking_id) {
       await updateBookingStatus(supabase, booking_id);
     }
@@ -267,20 +252,21 @@ export async function POST(request: Request) {
 }
 
 // PATCH: Verify Payment & Auto-Update Booking Balance
-// PATCH: Verify Payment & Auto-Update Booking Balance
 export async function PATCH(request: Request) {
   try {
     const supabase = await createClient();
 
-    // ✅ FIX 1: Extract 'user' here
     const { error: authError, user } = await authorizeAdmin(supabase);
     if (authError) return authError;
 
     const body = await request.json();
-    const { payment_id, status, verified_amount } = body;
+    const { payment_id, status, verified_amount, description } = body;
 
-    // ... (Keep existing Logic for updateData) ...
-    const updateData: { status: string; amount?: number } = { status };
+    const updateData: {
+      status: string;
+      amount?: number;
+      description?: string;
+    } = { status, description };
     if (
       status === "completed" &&
       verified_amount !== undefined &&
@@ -292,7 +278,7 @@ export async function PATCH(request: Request) {
       }
     }
 
-    // 2. Update the Payment
+    // 1. Update the Payment
     const { data: payment, error: paymentError } = await supabase
       .from("payments")
       .update(updateData)
@@ -304,24 +290,40 @@ export async function PATCH(request: Request) {
       throw paymentError || new Error("Payment not found");
     }
 
-    // ✅ LOG THE ACTION
-    // Now 'user' is defined and safe to use because we checked authError above
+    // 2. Log Admin Action
     await logAdminAction(
       supabase,
-      user!.id, // use ! because we know user exists if auth passed
+      user!.id,
       status === "completed" ? "Verified Payment" : "Rejected Payment",
       `Payment ID: ${payment_id.substring(0, 8)} | Amount: ${
         updateData.amount || payment.amount
       }`,
     );
 
-    // IF REJECTED, stop here.
-    if (status !== "completed") {
+    // 3. IF REJECTED: Send In-App Notification to User
+    if (status === "failed" && payment.booking_id) {
+      // Fetch the booking to get the guest_id
+      const { data: bookingData } = await supabase
+        .from("bookings")
+        .select("guest_id")
+        .eq("id", payment.booking_id)
+        .maybeSingle();
+
+      if (bookingData?.guest_id) {
+        await supabase.from("notifications").insert({
+          user_id: bookingData.guest_id,
+          title: "Payment Rejected",
+          message: `Your payment for booking #${payment.booking_id.substring(0, 8)} was rejected. Reason: ${description || "Invalid receipt."}`,
+          type: "payment_failed",
+          read: false, // Ensures it shows up as a red dot/unread in their bell icon
+        });
+      }
+
       return NextResponse.json({ success: true, payment });
     }
 
-    // 3. Trigger Auto-Balance Helper
-    if (payment.booking_id) {
+    // 4. IF APPROVED: Trigger Auto-Balance
+    if (status === "completed" && payment.booking_id) {
       await updateBookingStatus(supabase, payment.booking_id);
     }
 

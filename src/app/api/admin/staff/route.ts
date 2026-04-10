@@ -12,7 +12,7 @@ export async function GET() {
   const { data: staff, error } = await supabase
     .from("staff")
     .select("*")
-    .order("full_name", { ascending: true });
+    .order("first_name", { ascending: true }); // ✅ FIX: Order by first_name
 
   if (error)
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -29,14 +29,15 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    // ✅ Include user_id in the insert
     const { data, error } = await supabase
       .from("staff")
       .insert([
         {
           user_id: body.user_id || null,
           employee_id: body.employee_id,
-          full_name: body.full_name,
+          first_name: body.first_name, // ✅ FIX: Mapped correctly
+          last_name: body.last_name, // ✅ FIX: Mapped correctly
+          middle_name: body.middle_name || null, // ✅ FIX: Mapped correctly
           email: body.email,
           phone: body.phone,
           position: body.position,

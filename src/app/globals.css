@@ -42,3 +42,8 @@ body {
     -moz-appearance: textfield;
   }
 }
+
+.required-label::after {
+  content: " *";
+  color: red;
+}

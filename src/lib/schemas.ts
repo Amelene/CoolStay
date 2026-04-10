@@ -42,18 +42,23 @@ export const RegisterSchema = z
 
 // --- ADMIN: STAFF SCHEMA ---
 export const StaffSchema = z.object({
-  employee_id: z.string().min(1, "Employee ID is required"), // Alphanumeric allowed for IDs
-  full_name: z
+  employee_id: z.string().min(1, "Employee ID is required"),
+  first_name: z
     .string()
-    .min(2, "Full Name is required")
-    .regex(nameRegex, "Full Name: " + nameError),
+    .min(2, "First Name is required")
+    .regex(nameRegex, "First Name: " + nameError),
+  last_name: z
+    .string()
+    .min(2, "Last Name is required")
+    .regex(nameRegex, "Last Name: " + nameError),
+  middle_name: z.string().optional(),
   email: z.string().email("Invalid email"),
   phone: z.string().regex(phoneRegex, "Invalid PH phone number"),
   department: z.string().min(1, "Department is required"),
   position: z
     .string()
     .min(1, "Position is required")
-    .regex(/^[a-zA-Z\s\-\.]+$/, "Position should not contain numbers"), // Position usually shouldn't have numbers
+    .regex(/^[a-zA-Z\s\-\.]+$/, "Position should not contain numbers"),
   status: z.enum(["active", "inactive", "terminated"] as const),
   salary: z.coerce.number().min(0, "Salary cannot be negative"),
   hire_date: z.string().min(1, "Date is required"),

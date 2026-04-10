@@ -9,6 +9,7 @@ export interface BookingData {
   price_day?: number;
   price_night?: number;
   price_overnight?: number;
+  capacity?: number;
 }
 
 interface RoomProps {
@@ -145,6 +146,7 @@ export default function RoomCard({
                   price_day: priceDay,
                   price_night: priceNight,
                   price_overnight: priceOvernight,
+                  capacity: capacity,
                 })
               }
               className="bg-[#0A1A44] hover:bg-[#0A1A44]/90 text-white px-8 py-2 rounded-lg text-sm font-bold shadow-lg"

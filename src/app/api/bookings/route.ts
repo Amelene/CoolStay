@@ -11,9 +11,8 @@ async function cleanupExpiredBookings(
   adminDb: SupabaseClient,
   userId?: string,
 ) {
-  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  const today = new Date().toISOString().split("T")[0];
 
-  // Query: Find pending bookings where check-in is strictly BEFORE today
   let query = adminDb
     .from("bookings")
     .update({
@@ -36,7 +35,6 @@ async function cleanupExpiredBookings(
 export async function GET() {
   const supabase = await createClient();
 
-  // 1. Check User Session
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -44,14 +42,12 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // 2. TRIGGER CLEANUP (Using Admin Client)
   const adminDb = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
   await cleanupExpiredBookings(adminDb, user.id);
 
-  // 3. Fetch Fresh Data (INCLUDING PAYMENTS)
   const { data: bookings, error } = await supabase
     .from("bookings")
     .select(
@@ -91,9 +87,18 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    // ⚠️ Note: We purposefully IGNORE 'total_price' from body for security
-    const { room_type_id, check_in, check_out, adults, children, infants } =
-      body;
+    // ⚠️ We purposefully IGNORE 'total_price' from body for security
+    const {
+      room_type_id,
+      check_in,
+      check_out,
+      adults,
+      children,
+      infants,
+      seniors,
+      pwds,
+      discounts,
+    } = body;
 
     const adminDb = createAdminClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -103,16 +108,37 @@ export async function POST(request: Request) {
     // 1. GLOBAL CLEANUP
     await cleanupExpiredBookings(adminDb);
 
-    // 2. Check Room Details & Get REAL PRICE from Database
+    // 2. Check Room Details & Get REAL PRICE & CAPACITY from Database
     const { data: roomType, error: roomError } = await adminDb
       .from("room_types")
-      .select("total_rooms, base_price, price_night") // Fetch prices
+      // Ensure we select 'capacity' to validate headcount
+      .select(
+        "total_rooms, base_price, price_day, price_night, price_overnight, capacity",
+      )
       .eq("id", room_type_id)
       .single();
 
     if (roomError || !roomType) throw new Error("Room type not found.");
 
-    // 🔒 3. SERVER-SIDE PRICE CALCULATION (The Security Fix)
+    // 🔒 BACKEND CAPACITY VALIDATION
+    const numAdults = Number(adults) || 1;
+    const numChildren = Number(children) || 0;
+    const numInfants = Number(infants) || 0;
+    const numSeniors = Number(seniors) || 0;
+    const numPwds = Number(pwds) || 0;
+
+    const totalHeadcount = numAdults + numChildren + numSeniors + numPwds;
+
+    const maxCapacity = roomType.capacity || 2;
+
+    if (totalHeadcount > maxCapacity) {
+      return NextResponse.json(
+        { error: `Maximum capacity of ${maxCapacity} guests exceeded.` },
+        { status: 400 },
+      );
+    }
+
+    // 3. SERVER-SIDE PRICE CALCULATION
     const start = new Date(check_in);
     const end = new Date(check_out);
     const nights = Math.max(
@@ -120,15 +146,73 @@ export async function POST(request: Request) {
       Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)),
     );
 
-    // Fallback logic: Use nightly price if available, otherwise base_price
-    const rate =
-      roomType.price_night && roomType.price_night > 0
-        ? roomType.price_night
-        : roomType.base_price;
+    // Determine rate based on stay type
+    let baseRate: number;
+    if (check_in === check_out) {
+      baseRate =
+        roomType.price_day && roomType.price_day > 0
+          ? roomType.price_day
+          : roomType.price_night && roomType.price_night > 0
+            ? roomType.price_night
+            : roomType.base_price;
+    } else {
+      baseRate =
+        roomType.price_overnight && roomType.price_overnight > 0
+          ? roomType.price_overnight
+          : roomType.price_night && roomType.price_night > 0
+            ? roomType.price_night
+            : roomType.base_price;
+    }
 
-    const calculatedTotal = rate * nights;
+    const baseTotalAmount = baseRate * nights;
 
-    // 4. Availability Logic
+    // 🔒 SERVER-SIDE DISCOUNT CALCULATION (The "No Stacking" Rule)
+    const { promo_code } = body; // Extract from body
+
+    let seniorPwdDiscount = 0;
+    if (totalHeadcount > 0 && (numSeniors > 0 || numPwds > 0)) {
+      const perPaxRate = baseTotalAmount / totalHeadcount;
+      const eligibleShare = perPaxRate * (numSeniors + numPwds);
+      seniorPwdDiscount = eligibleShare * 0.2;
+    }
+
+    let marketingDiscount = 0;
+    let appliedPromoId = null;
+
+    // Verify promo backend-side again for security
+    if (promo_code) {
+      const { data: promo } = await adminDb
+        .from("promotions")
+        .select("*")
+        .ilike("code", promo_code)
+        .eq("status", "active")
+        .single();
+
+      if (
+        promo &&
+        (!promo.usage_limit || promo.usage_count < promo.usage_limit)
+      ) {
+        if (promo.discount_type === "percentage") {
+          marketingDiscount = baseTotalAmount * (promo.discount_value / 100);
+        } else if (promo.discount_type === "fixed") {
+          marketingDiscount = promo.discount_value;
+        }
+        appliedPromoId = promo.id;
+      }
+    }
+
+    // "Best Price Wins" Rule (No Stacking)
+    let finalDiscountAmount = 0;
+    if (seniorPwdDiscount >= marketingDiscount) {
+      finalDiscountAmount = seniorPwdDiscount;
+      appliedPromoId = null; // We drop the promo because Senior is better
+    } else {
+      finalDiscountAmount = marketingDiscount;
+    }
+
+    const calculatedTotal = baseTotalAmount - finalDiscountAmount;
+
+    // 4. Availability Check
     const searchStart = check_in;
     const searchEnd =
       check_out === check_in
@@ -147,7 +231,6 @@ export async function POST(request: Request) {
 
     if (fetchError) throw fetchError;
 
-    // Filter Overlaps
     const overlapCount =
       existingBookings?.filter((b) => {
         const bStart = b.check_in_date;
@@ -167,19 +250,25 @@ export async function POST(request: Request) {
       );
     }
 
-    // 5. Create Booking with breakdown
-    const { data, error: insertError } = await adminDb
+    // 5. Create Booking
+    const SECURITY_DEPOSIT = 1000.0;
+
+    const { data: bookingData, error: insertError } = await adminDb
       .from("bookings")
       .insert({
         guest_id: user.id,
         room_type_id,
         check_in_date: check_in,
         check_out_date: check_out,
-        guests_count: (Number(adults) || 1) + (Number(children) || 0), // Legacy Sum
-        adults: Number(adults) || 1,
-        children: Number(children) || 0,
-        infants: Number(infants) || 0,
-        total_amount: calculatedTotal, // ✅ SECURE: Uses server value
+        guests_count: totalHeadcount,
+        adults: numAdults,
+        children: numChildren,
+        infants: numInfants,
+        total_amount: calculatedTotal,
+        discount_amount: finalDiscountAmount, // <-- NEW
+        promo_id: appliedPromoId, // <-- NEW
+        security_deposit_amount: SECURITY_DEPOSIT,
+        security_deposit_status: "pending",
         status: "pending",
         payment_status: "pending",
       })
@@ -188,7 +277,42 @@ export async function POST(request: Request) {
 
     if (insertError) throw insertError;
 
-    // 6. Send confirmation email asynchronously (don't block the response)
+    // 💥 TRIGGER ATOMIC RPC IF PROMO WAS USED
+    if (appliedPromoId) {
+      await adminDb.rpc("increment_promo_usage", {
+        promo_id_param: appliedPromoId,
+      });
+    }
+
+    // 5.5 INSERT DISCOUNT VERIFICATIONS
+    if (discounts && discounts.length > 0) {
+      const discountPayload = discounts.map(
+        (d: {
+          guest_name: string;
+          discount_type: string;
+          id_number: string;
+          id_image_url: string;
+        }) => ({
+          booking_id: bookingData.id,
+          guest_name: d.guest_name,
+          discount_type: d.discount_type,
+          id_number: d.id_number,
+          id_image_url: d.id_image_url,
+          verification_status: "Pending",
+        }),
+      );
+
+      const { error: discountError } = await adminDb
+        .from("booking_discounts")
+        .insert(discountPayload);
+
+      if (discountError) {
+        // Log but don't fail — booking and payment are already secured
+        console.error("Failed to insert discount records:", discountError);
+      }
+    }
+
+    // 6. Send confirmation email asynchronously
     const { data: userProfile } = await adminDb
       .from("users")
       .select("full_name, email")
@@ -201,25 +325,23 @@ export async function POST(request: Request) {
       .eq("id", room_type_id)
       .single();
 
-    // Send email in background (don't await to avoid blocking)
     sendBookingConfirmationEmailWithRetry({
       guestName: userProfile?.full_name || "Guest",
       guestEmail: userProfile?.email || user.email || "",
       roomName: roomDetails?.name || "Room",
       checkInDate: check_in,
       checkOutDate: check_out,
-      adults: Number(adults) || 1,
-      children: Number(children) || 0,
-      infants: Number(infants) || 0,
+      adults: numAdults,
+      children: numChildren,
+      infants: numInfants,
       totalAmount: calculatedTotal,
-      bookingId: data.id,
+      bookingId: bookingData.id,
       specialRequests: body.special_requests || "",
     }).catch((emailError) => {
       console.error("Failed to send booking confirmation email:", emailError);
-      // Don't fail the booking if email fails
     });
 
-    return NextResponse.json({ success: true, booking: data });
+    return NextResponse.json({ success: true, booking: bookingData });
   } catch (error: unknown) {
     console.error("Booking Error:", error);
     const msg =

@@ -11,6 +11,7 @@ import {
   Baby,
   Milk,
   Hash,
+  AlertCircle, // Added Alert Icon
 } from "lucide-react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import BookingReceipt from "@/components/pdf/BookingReceipt";
@@ -96,6 +97,15 @@ export default function BookingCard({
     booking.payments?.filter(
       (p) => p.status === "completed" || p.status === "paid",
     ) || [];
+
+  // NEW: Grab failed payments to show the rejection reason
+  const failedPayments =
+    booking.payments?.filter((p) => p.status === "failed") || [];
+  const recentFailedPayment =
+    failedPayments.length > 0
+      ? failedPayments[failedPayments.length - 1]
+      : null;
+
   const totalPaid = validPayments.reduce((sum, p) => sum + p.amount, 0);
   const balance = Math.max(0, booking.total_amount - totalPaid);
   const isFullyPaid = balance <= 0;
@@ -217,46 +227,72 @@ export default function BookingCard({
                 )}
               </div>
             </div>
+
+            {/* NEW: Rejection Warning Banner */}
+            {recentFailedPayment && showPayNow && (
+              <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 p-2.5 rounded-lg">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-[10px] font-bold text-red-700 uppercase tracking-wide">
+                    Payment Rejected
+                  </h4>
+                  <p className="text-xs text-red-600 font-medium mt-0.5 leading-snug">
+                    {recentFailedPayment.description ||
+                      "The uploaded receipt was invalid. Please try again."}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* COMPACT FOOTER */}
           <div className="flex flex-wrap items-end justify-between gap-3 mt-3 pt-3 border-t border-slate-100 dashed">
-            {/* Financials - Tight Horizontal Layout */}
-            <div className="flex items-center gap-3 text-xs">
-              <div>
-                <span className="text-[10px] text-slate-400 font-bold uppercase block">
-                  Total
-                </span>
-                <span className="font-black text-[#0A1A44]">
-                  ₱{booking.total_amount?.toLocaleString()}
-                </span>
+            {/* Financials */}
+            <div className="flex flex-col gap-1">
+              {/* Row 1: Total / Paid / Due */}
+              <div className="flex items-center gap-3 text-xs">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">
+                    Total
+                  </span>
+                  <span className="font-black text-[#0A1A44]">
+                    ₱{booking.total_amount?.toLocaleString()}
+                  </span>
+                </div>
+
+                {(totalPaid > 0 || !isFullyPaid) && (
+                  <div className="h-6 w-px bg-slate-200"></div>
+                )}
+
+                {totalPaid > 0 && (
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">
+                      Paid
+                    </span>
+                    <span className="font-bold text-green-600">
+                      ₱{totalPaid.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+
+                {!isFullyPaid && (
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">
+                      Due
+                    </span>
+                    <span className="font-bold text-red-500">
+                      ₱{balance.toLocaleString()}
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {(totalPaid > 0 || !isFullyPaid) && (
-                <div className="h-6 w-px bg-slate-200"></div>
-              )}
-
-              {totalPaid > 0 && (
-                <div>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">
-                    Paid
-                  </span>
-                  <span className="font-bold text-green-600">
-                    ₱{totalPaid.toLocaleString()}
-                  </span>
-                </div>
-              )}
-
-              {!isFullyPaid && (
-                <div>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">
-                    Due
-                  </span>
-                  <span className="font-bold text-red-500">
-                    ₱{balance.toLocaleString()}
-                  </span>
-                </div>
-              )}
+              {/* Row 2: Security Deposit Badge */}
+              <div>
+                <span className="text-[9px] text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100 font-medium">
+                  + ₱1,000 Cash Deposit required at check-in
+                </span>
+              </div>
             </div>
 
             {/* Actions - Smaller Buttons */}
