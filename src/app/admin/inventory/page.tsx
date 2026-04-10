@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   Plus,
   AlertTriangle,
@@ -13,6 +13,7 @@ import {
   FileText,
   Download,
   Calendar,
+  Filter,
 } from "lucide-react";
 import AddSupplyModal from "@/components/admin/inventory/AddSupplyModal";
 import AdjustStockModal from "@/components/admin/inventory/AdjustStockModal";
@@ -39,12 +40,11 @@ type SupplyItem = {
 type ReportItem = {
   id: string;
   generated_at: string;
-  report_content: string; // JSON string
-  created_by?: string; // Optional if you track who made it
+  report_content: string;
+  created_by?: string;
 };
 
 export default function InventoryPage() {
-  // ✅ Added "reports" tab
   const [activeTab, setActiveTab] = useState<"stock" | "logs" | "reports">(
     "stock",
   );
@@ -53,7 +53,11 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  // --- NEW: Advanced Filter & Sort States ---
   const [search, setSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [sortBy, setSortBy] = useState<string>("name-asc");
 
   // Modal States
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -99,9 +103,8 @@ export default function InventoryPage() {
 
       toast.success("Snapshot saved to Reports tab!", { id: toastId });
       await fetchReports();
-      setActiveTab("reports"); // ✅ Auto-switch to reports tab
+      setActiveTab("reports");
     } catch (error) {
-      // ✅ Fixed: error variable used
       console.error(error);
       toast.error("Failed to generate report", { id: toastId });
     } finally {
@@ -124,7 +127,6 @@ export default function InventoryPage() {
       );
       toast.success("Download started");
     } catch (error) {
-      // ✅ Fixed: error variable used
       console.error(error);
       toast.error("Error downloading file");
     } finally {
@@ -132,12 +134,49 @@ export default function InventoryPage() {
     }
   };
 
-  // Filter Logic
-  const filteredItems = items.filter(
-    (item) =>
-      item.item_name.toLowerCase().includes(search.toLowerCase()) ||
-      item.category.toLowerCase().includes(search.toLowerCase()),
-  );
+  // --- NEW: Dynamic Categories Extraction ---
+  const categories = useMemo(() => {
+    const cats = items.map((item) => item.category);
+    return ["All", ...Array.from(new Set(cats))];
+  }, [items]);
+
+  // --- NEW: High-Performance Filter & Sort Pipeline ---
+  const processedItems = useMemo(() => {
+    let result = [...items];
+
+    // 1. Apply Search
+    if (search) {
+      const lowerSearch = search.toLowerCase();
+      result = result.filter(
+        (item) =>
+          item.item_name.toLowerCase().includes(lowerSearch) ||
+          item.category.toLowerCase().includes(lowerSearch),
+      );
+    }
+
+    // 2. Apply Category Filter
+    if (selectedCategory !== "All") {
+      result = result.filter((item) => item.category === selectedCategory);
+    }
+
+    // 3. Apply Sorting
+    result.sort((a, b) => {
+      switch (sortBy) {
+        case "name-asc":
+          return a.item_name.localeCompare(b.item_name);
+        case "name-desc":
+          return b.item_name.localeCompare(a.item_name);
+        case "stock-asc":
+          return a.current_stock - b.current_stock;
+        case "stock-desc":
+          return b.current_stock - a.current_stock;
+        default:
+          return 0;
+      }
+    });
+
+    return result;
+  }, [items, search, selectedCategory, sortBy]);
 
   const lowStockCount = items.filter(
     (i) => i.current_stock <= i.minimum_stock,
@@ -156,7 +195,6 @@ export default function InventoryPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          {/* Primary Action is always Add Item */}
           <button
             onClick={() => setIsAddOpen(true)}
             className="bg-[#0A1A44] hover:bg-blue-900 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md flex items-center gap-2 active:scale-95 transition-all"
@@ -165,8 +203,7 @@ export default function InventoryPage() {
           </button>
         </div>
       </div>
-
-      {/* KPI Cards (Always visible for context, or strictly on Stock tab? Keeping generic context is good) */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
           <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
@@ -210,7 +247,7 @@ export default function InventoryPage() {
           </div>
         </div>
       </div>
-
+      min-h-125
       {/* Navigation Tabs */}
       <div className="flex gap-1 mb-6 bg-white p-1 rounded-2xl border border-slate-200 w-fit shadow-sm">
         <button
@@ -232,28 +269,62 @@ export default function InventoryPage() {
           <FileText className="w-4 h-4" /> Saved Reports
         </button>
       </div>
-
       {/* --- CONTENT AREA --- */}
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden min-h-[500px]">
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden min-h-125">
         {/* TAB 1: CURRENT STOCK */}
         {activeTab === "stock" && (
           <>
-            <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row gap-4 justify-between items-center">
-              <div className="relative flex-1 w-full sm:max-w-sm">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                <input
-                  placeholder="Search supplies..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-10 p-2.5 bg-slate-50 border-none rounded-xl text-sm font-medium focus:ring-2 ring-blue-100 outline-none"
-                />
+            <div className="p-4 border-b border-slate-100 flex flex-col lg:flex-row gap-4 justify-between items-center bg-slate-50/50">
+              {/* --- NEW: Advanced Control Panel --- */}
+              <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+                {/* Search */}
+                <div className="relative flex-1 sm:min-w-62.5">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                  <input
+                    placeholder="Search supplies..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full pl-10 p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all shadow-sm"
+                  />
+                </div>
+
+                {/* Category Filter */}
+                <div className="relative flex-1 sm:min-w-45 flex items-center">
+                  <Filter className="absolute left-3 w-4 h-4 text-slate-400 pointer-events-none" />
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="w-full pl-10 p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-600 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all shadow-sm cursor-pointer appearance-none"
+                  >
+                    {categories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Sorting */}
+                <div className="relative flex-1 sm:min-w-45 flex items-center">
+                  <ArrowUpDown className="absolute left-3 w-4 h-4 text-slate-400 pointer-events-none" />
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="w-full pl-10 p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-600 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all shadow-sm cursor-pointer appearance-none"
+                  >
+                    <option value="name-asc">Name (A-Z)</option>
+                    <option value="name-desc">Name (Z-A)</option>
+                    <option value="stock-asc">Stock (Low to High)</option>
+                    <option value="stock-desc">Stock (High to Low)</option>
+                  </select>
+                </div>
               </div>
 
               {/* SNAPSHOT BUTTON */}
               <button
                 onClick={handleGenerateReport}
                 disabled={isGenerating}
-                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                className="w-full lg:w-auto bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 shrink-0"
               >
                 {isGenerating ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -266,7 +337,7 @@ export default function InventoryPage() {
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase font-bold text-slate-500">
+                <thead className="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-100">
                   <tr>
                     <th className="px-6 py-4">Item Name</th>
                     <th className="px-6 py-4">Category</th>
@@ -281,21 +352,26 @@ export default function InventoryPage() {
                         colSpan={4}
                         className="p-12 text-center text-slate-400"
                       >
-                        <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />{" "}
+                        <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
                         Loading inventory...
                       </td>
                     </tr>
-                  ) : filteredItems.length === 0 ? (
+                  ) : processedItems.length === 0 ? (
                     <tr>
-                      <td
-                        colSpan={4}
-                        className="p-12 text-center text-slate-400"
-                      >
-                        No items found matching your search.
+                      <td colSpan={4} className="p-16 text-center">
+                        <div className="mx-auto w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-3">
+                          <Package className="w-8 h-8 text-slate-300" />
+                        </div>
+                        <p className="text-slate-500 font-bold">
+                          No items found.
+                        </p>
+                        <p className="text-slate-400 text-xs mt-1">
+                          Try adjusting your search or filters.
+                        </p>
                       </td>
                     </tr>
                   ) : (
-                    filteredItems.map((item) => {
+                    processedItems.map((item) => {
                       const isLow = item.current_stock <= item.minimum_stock;
                       return (
                         <tr
@@ -306,12 +382,12 @@ export default function InventoryPage() {
                             <p className="font-bold text-slate-700">
                               {item.item_name}
                             </p>
-                            <p className="text-[10px] text-slate-400">
+                            <p className="text-[10px] text-slate-400 font-mono">
                               ID: {item.id.substring(0, 6)}
                             </p>
                           </td>
                           <td className="px-6 py-4">
-                            <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded-md text-xs font-bold">
+                            <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider">
                               {item.category}
                             </span>
                           </td>
@@ -327,7 +403,7 @@ export default function InventoryPage() {
                               </span>
                               {isLow && (
                                 <span className="bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">
-                                  Low
+                                  Low Stock
                                 </span>
                               )}
                             </div>
@@ -350,16 +426,16 @@ export default function InventoryPage() {
           </>
         )}
 
-        {/* TAB 2: USAGE LOGS */}
+        {/* TAB 2 & 3 remain completely unchanged */}
         {activeTab === "logs" && (
           <div className="p-6">
             <InventoryLogs />
           </div>
         )}
 
-        {/* TAB 3: SAVED REPORTS (Redesigned) */}
         {activeTab === "reports" && (
           <div className="p-6">
+            {/* Same report render logic as before... */}
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h3 className="text-xl font-bold text-[#0A1A44]">
@@ -387,7 +463,6 @@ export default function InventoryPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {reports.map((report) => {
-                  // PARSE JSON content for preview stats
                   let stats = { totalItems: 0, lowStockCount: 0 };
                   try {
                     const parsed = JSON.parse(report.report_content);
@@ -461,7 +536,7 @@ export default function InventoryPage() {
                           )
                         }
                         disabled={downloadingId === report.id}
-                        className="w-full bg-slate-50 hover:bg-[#0A1A44] hover:text-white text-slate-600 border border-slate-200 hover:border-[#0A1A44] py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all"
+                        className="w-full mt-4 bg-slate-50 hover:bg-[#0A1A44] hover:text-white text-slate-600 border border-slate-200 hover:border-[#0A1A44] py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all"
                       >
                         {downloadingId === report.id ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
@@ -479,8 +554,6 @@ export default function InventoryPage() {
           </div>
         )}
       </div>
-
-      {/* Modals */}
       <AddSupplyModal
         isOpen={isAddOpen}
         onClose={() => setIsAddOpen(false)}
