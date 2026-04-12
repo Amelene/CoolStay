@@ -36,6 +36,7 @@ import PaymentProofModal from "@/components/admin/PaymentProofModal";
 import TransactionModal from "@/components/admin/TransactionModal";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import BookingReceipt from "@/components/pdf/BookingReceipt";
+import AdminCheckInModal from "@/components/admin/AdminCheckInModal";
 
 // --- TYPES ---
 interface UserProfile {
@@ -76,6 +77,8 @@ interface Booking {
   check_out_date: string;
   total_amount: number;
   payment_status: string;
+  room_type_id: string;
+  assigned_room_id?: string;
   special_requests?: string;
   security_deposit_amount?: number;
   security_deposit_status?: string;
@@ -492,52 +495,25 @@ export default function AdminBookingsPage() {
         </div>
       )}
 
-      {/* ✅ CHECK-IN SECURITY DEPOSIT MODAL */}
-      {checkInConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-2xl p-6 shadow-2xl max-w-md w-full animate-in zoom-in-95">
-            <div className="flex flex-col items-center text-center gap-4">
-              <div className="p-3 bg-orange-50 text-orange-600 rounded-full">
-                <AlertTriangle className="w-8 h-8" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-slate-800">
-                  Collect Security Deposit
-                </h3>
-                <p className="text-sm text-orange-800 mt-2">
-                  Before handing over the keys, you must collect the incidental
-                  deposit.
-                </p>
-                <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">
-                    Amount Due Now
-                  </p>
-                  <p className="text-2xl font-serif font-bold text-[#0A1A44]">
-                    ₱1,000
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-3 w-full mt-4">
-                <button
-                  onClick={() => setCheckInConfirm(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-slate-50 transition-colors text-sm"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    handleStatusUpdate(checkInConfirm.id, "checked_in", "held");
-                    setCheckInConfirm(null);
-                  }}
-                  className="flex-1 py-2.5 rounded-xl bg-green-600 text-white font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-200 text-sm flex justify-center items-center gap-2"
-                >
-                  <CheckCircle className="w-4 h-4" /> Collected & Check In
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ✅ NEW: THE MOVIE SEAT CHECK-IN MODAL */}
+      <AdminCheckInModal
+        isOpen={!!checkInConfirm}
+        onClose={() => setCheckInConfirm(null)}
+        booking={
+          checkInConfirm
+            ? {
+                id: checkInConfirm.id,
+                guestName: checkInConfirm.users?.full_name || "Guest",
+                room_type_id: checkInConfirm.room_type_id,
+                roomTypeName: checkInConfirm.room_types?.name || "Room",
+              }
+            : null
+        }
+        onSuccess={() => {
+          fetchBookings();
+          setCheckInConfirm(null);
+        }}
+      />
 
       {/* ✅ CHECK-OUT / DEPOSIT CLEARANCE MODAL */}
       {checkOutConfirm && (
