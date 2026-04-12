@@ -17,8 +17,9 @@ import {
   UserCog,
   Waves,
   Megaphone,
-  Receipt, // Added for Expenses
-  KanbanSquare, // Added for Tasks
+  Receipt,
+  KanbanSquare,
+  DoorOpen, // <-- 🔒 NEW: Imported DoorOpen icon
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -46,6 +47,7 @@ const menuGroups = [
         icon: CalendarCheck,
       },
       { name: "Room Availability", href: "/admin/rooms", icon: BedDouble },
+      { name: "Room Status", href: "/admin/room-status", icon: DoorOpen }, // <-- 🔒 NEW: Added to Operations
       { name: "Activity Management", href: "/admin/activities", icon: Waves },
       { name: "Inventory Management", href: "/admin/inventory", icon: Package },
       {
@@ -60,7 +62,7 @@ const menuGroups = [
     items: [
       { name: "Customer Management", href: "/admin/customers", icon: UserCog },
       { name: "Staff Management", href: "/admin/staff", icon: IdCard },
-      { name: "Staff Tasks", href: "/admin/tasks", icon: KanbanSquare }, // <-- NEW: Task Board
+      { name: "Staff Tasks", href: "/admin/tasks", icon: KanbanSquare },
       {
         name: "Guest Engagement",
         href: "/admin/feedback",
@@ -72,7 +74,7 @@ const menuGroups = [
     title: "Finance & Reports",
     items: [
       { name: "Billing & Invoices", href: "/admin/billing", icon: FileText },
-      { name: "Expenses", href: "/admin/expenses", icon: Receipt }, // <-- NEW: Expense Ledger
+      { name: "Expenses", href: "/admin/expenses", icon: Receipt },
       { name: "Reports & Analytics", href: "/admin/reports", icon: BarChart3 },
     ],
   },
