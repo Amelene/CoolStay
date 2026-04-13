@@ -1,17 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import TransactionModal from "@/components/admin/TransactionModal";
 import {
+  ArrowDownLeft,
+  ArrowUpRight,
   CheckCircle2,
   Clock,
-  Plus,
-  ArrowUpRight,
-  ArrowDownLeft,
-  Loader2,
   Eye,
   FileText,
+  Loader2,
+  Plus,
 } from "lucide-react";
-import TransactionModal from "@/components/admin/TransactionModal";
+import { useEffect, useState } from "react";
 // Removed ReceiptModal import as we are consolidating to PaymentProofModal
 import PaymentProofModal from "@/components/admin/PaymentProofModal";
 
@@ -236,6 +236,7 @@ export default function BillingPage() {
                 // These fields are now available in the Invoice type
                 total_booking_amount: selectedPayment.total_booking_amount,
                 booking_id: selectedPayment.booking_id,
+                status: selectedPayment.status,
               }
             : null
         }

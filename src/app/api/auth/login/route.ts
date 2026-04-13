@@ -32,7 +32,6 @@ export async function POST(request: Request) {
 
     // 3. 2FA Check Enforcement
     if (profile?.is_two_factor_enabled) {
-      // ✅ Intercept: Do not log "User Login" yet, effectively they are not fully in.
       // Redirect to the verification page
       return NextResponse.json({ redirectUrl: "/auth/verify-2fa" });
     }

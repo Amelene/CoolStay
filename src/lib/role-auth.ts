@@ -91,9 +91,22 @@ export async function authorizeRole(
 
 /**
  * Admin-only authorization (backward compatible)
+ * Also checks for legacy 'super_admin' role for compatibility
  */
 export async function authorizeAdminOnly(supabase: SupabaseClient) {
-  return authorizeRole(supabase, [ROLES.ADMIN]);
+  const result = await authorizeRole(supabase, [ROLES.ADMIN]);
+  
+  // If role check failed, also check for legacy roles
+  if (result.error && result.role) {
+    // Check if user has super_admin or any admin-like role
+    const adminLikeRoles = ['admin', 'super_admin', 'administrator'];
+    if (adminLikeRoles.includes(result.role.toLowerCase())) {
+      // Allow access for admin-like roles
+      return { error: null, user: result.user, role: result.role };
+    }
+  }
+  
+  return result;
 }
 
 /**
