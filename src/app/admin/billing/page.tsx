@@ -196,8 +196,8 @@ export default function BillingPage() {
                           inv.status === "paid" || inv.status === "completed"
                             ? "bg-green-100 text-green-700"
                             : inv.status === "failed"
-                            ? "bg-red-100 text-red-700"
-                            : "bg-yellow-100 text-yellow-700"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-yellow-100 text-yellow-700"
                         }`}
                     >
                       {inv.status === "paid" || inv.status === "completed" ? (
@@ -233,9 +233,9 @@ export default function BillingPage() {
                 guest: selectedPayment.guest,
                 amount: selectedPayment.amount,
                 proof_url: selectedPayment.proof_url || "",
-                // These fields are now available in the Invoice type
                 total_booking_amount: selectedPayment.total_booking_amount,
                 booking_id: selectedPayment.booking_id,
+                status: selectedPayment.status,
               }
             : null
         }

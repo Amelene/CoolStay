@@ -22,6 +22,8 @@ import { toast } from "sonner";
 // --- DATA TYPES ---
 interface DashboardData {
   revenue: number;
+  expenses: number; // 🔒 ADD THIS
+  netProfit: number;
   activeGuests: number;
   actionItems: number;
   pendingBookings: number;
@@ -124,16 +126,18 @@ export default function AdminDashboardHome() {
 
       {/* 2. KPI CARDS (Wrapped in Links) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* REVENUE -> Billing */}
+        {/* NET PROFIT -> Billing */}
         <Link href="/admin/billing" className="group">
           <KpiCard
-            label="Today's Revenue"
-            value={`₱${(data.revenue || 0).toLocaleString()}`}
+            label="Today's Net Profit"
+            value={`₱${(data.netProfit || 0).toLocaleString()}`}
             icon={DollarSign}
-            trend="+12% from yesterday"
-            bgClass="bg-green-100"
-            textClass="text-green-600"
-            borderClass="border-green-200"
+            subtext={`Gross: ₱${(data.revenue || 0).toLocaleString()} | Exp: ₱${(data.expenses || 0).toLocaleString()}`}
+            bgClass={data.netProfit >= 0 ? "bg-green-100" : "bg-red-100"}
+            textClass={data.netProfit >= 0 ? "text-green-600" : "text-red-600"}
+            borderClass={
+              data.netProfit >= 0 ? "border-green-200" : "border-red-200"
+            }
           />
         </Link>
 
