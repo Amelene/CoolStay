@@ -5,7 +5,9 @@ import { NextResponse } from "next/server";
 export async function GET() {
   const supabase = await createClient();
   const { error: authError, user } = await authorizeAdminOnly(supabase);
-  if (authError) return authError;
+  if (authError || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   // 1. Fetch User Details from 'users' table
   const { data: userDetails } = await supabase
