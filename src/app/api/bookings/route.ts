@@ -11,18 +11,27 @@ async function cleanupExpiredBookings(
   adminDb: SupabaseClient,
   userId?: string,
 ) {
-  const today = new Date().toISOString().split("T")[0];
+  // Define how long a user has to complete their payment (e.g., 30 minutes)
+  const EXPIRATION_MINUTES = 30;
 
+  // Calculate the exact cutoff timestamp
+  const cutoffTime = new Date(
+    Date.now() - EXPIRATION_MINUTES * 60 * 1000,
+  ).toISOString();
+
+  // Update query: Target bookings that are 'pending' AND were created BEFORE the cutoff
   let query = adminDb
     .from("bookings")
     .update({
       status: "cancelled",
-      special_requests: "System: Auto-cancelled due to non-payment.",
+      special_requests:
+        "System: Auto-cancelled due to payment timeout (cart abandoned).",
     })
     .eq("status", "pending")
     .neq("payment_status", "paid")
-    .lt("check_in_date", today);
+    .lt("created_at", cutoffTime); // 🔒 THE FIX: Use created_at, not check_in_date
 
+  // Optionally scope to a specific user if requested
   if (userId) {
     query = query.eq("guest_id", userId);
   }

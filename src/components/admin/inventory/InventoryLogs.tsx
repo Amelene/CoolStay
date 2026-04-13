@@ -6,6 +6,8 @@ import {
   ArrowUpCircle,
   ArrowDownCircle,
   Download,
+  Search,
+  Filter,
 } from "lucide-react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import InventoryReport from "@/components/pdf/InventoryReport";
@@ -25,6 +27,10 @@ export default function InventoryLogs() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // --- NEW: Filter State ---
+  const [searchTerm, setSearchTerm] = useState("");
+  const [actionFilter, setActionFilter] = useState("all");
+
   useEffect(() => {
     fetchLogs();
   }, []);
@@ -41,6 +47,31 @@ export default function InventoryLogs() {
     }
   };
 
+  // --- NEW: Client-side Filtering Logic ---
+  const filteredLogs = logs.filter((log) => {
+    const searchLower = searchTerm.toLowerCase();
+    const itemName = (
+      log.inventory_supplies?.item_name || "Deleted Item"
+    ).toLowerCase();
+    const usedBy = (log.used_by || "").toLowerCase();
+    const notes = (log.notes || "").toLowerCase();
+
+    const matchesSearch =
+      itemName.includes(searchLower) ||
+      usedBy.includes(searchLower) ||
+      notes.includes(searchLower);
+
+    const isRestock = log.purpose === "Restock";
+    const matchesAction =
+      actionFilter === "all"
+        ? true
+        : actionFilter === "restock"
+          ? isRestock
+          : !isRestock;
+
+    return matchesSearch && matchesAction;
+  });
+
   if (loading)
     return (
       <div className="p-8 text-center text-slate-400">
@@ -51,16 +82,46 @@ export default function InventoryLogs() {
 
   return (
     <div className="space-y-4">
-      {/* Report Button */}
-      <div className="flex justify-end">
+      {/* --- UPDATED: Controls Toolbar --- */}
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        {/* Search & Filter Inputs */}
+        <div className="flex flex-1 w-full gap-3">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search items, staff, or notes..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#0A1A44] outline-none transition-all"
+            />
+          </div>
+
+          <div className="relative">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            <select
+              value={actionFilter}
+              onChange={(e) => setActionFilter(e.target.value)}
+              className="pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 focus:ring-2 focus:ring-[#0A1A44] outline-none appearance-none cursor-pointer"
+            >
+              <option value="all">All Actions</option>
+              <option value="restock">Restocks Only</option>
+              <option value="usage">Usage Only</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Report Button */}
         <PDFDownloadLink
-          document={<InventoryReport logs={logs} generatedBy="Admin" />}
+          document={<InventoryReport logs={filteredLogs} generatedBy="Admin" />}
           fileName={`Inventory_Report_${new Date().toISOString().split("T")[0]}.pdf`}
-          className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 shadow-md transition-all"
+          className="bg-[#0A1A44] hover:bg-blue-900 text-white px-5 py-2 rounded-lg text-sm font-bold flex items-center gap-2 shadow-md transition-all shrink-0 w-full sm:w-auto justify-center"
         >
           {({ loading }) =>
             loading ? (
-              "Preparing..."
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Preparing...
+              </>
             ) : (
               <>
                 <Download className="w-4 h-4" /> Download PDF Report
@@ -70,6 +131,7 @@ export default function InventoryLogs() {
         </PDFDownloadLink>
       </div>
 
+      {/* Table */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase font-bold text-slate-500">
@@ -87,11 +149,17 @@ export default function InventoryLogs() {
             {logs.length === 0 ? (
               <tr>
                 <td colSpan={7} className="p-8 text-center text-slate-400">
-                  No history found.
+                  No inventory history found.
+                </td>
+              </tr>
+            ) : filteredLogs.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="p-8 text-center text-slate-400">
+                  No logs match your current search and filters.
                 </td>
               </tr>
             ) : (
-              logs.map((log) => {
+              filteredLogs.map((log) => {
                 const isRestock = log.purpose === "Restock";
                 return (
                   <tr key={log.id} className="hover:bg-slate-50/50">
@@ -140,7 +208,7 @@ export default function InventoryLogs() {
                       {log.used_by}
                     </td>
                     <td
-                      className="px-6 py-4 text-slate-500 max-w-[200px] truncate"
+                      className="px-6 py-4 text-slate-500 max-w-50 truncate"
                       title={log.notes}
                     >
                       {log.notes}

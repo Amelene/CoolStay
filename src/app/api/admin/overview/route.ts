@@ -6,9 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    // 1. Use the standard client (respects RLS & Cookies)
     const supabase = await createClient();
-
     const { error: authError } = await authorizeAdmin(supabase);
     if (authError) return authError;
 
@@ -23,6 +21,7 @@ export async function GET() {
       departuresRes,
       activeGuestsRes,
       maintenanceRes,
+      expensesRes, // 🔒 NEW: Fetch Expenses
     ] = await Promise.all([
       supabase
         .from("payments")
@@ -59,11 +58,15 @@ export async function GET() {
         .from("room_inventory")
         .select("room_number, notes")
         .in("status", ["maintenance", "out_of_order"]),
+      supabase.from("expenses").select("amount").gte("expense_date", todayStr), // 🔒 NEW
     ]);
 
-    // ... (Keep existing calculation logic) ...
     const revenue =
       paymentsRes.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+    const expenses =
+      expensesRes.data?.reduce((sum, e) => sum + Number(e.amount), 0) || 0; // 🔒 NEW
+    const netProfit = revenue - expenses; // 🔒 NEW
+
     const pendingBookings = pendingBookingsRes.count || 0;
     const newInquiries = inquiriesRes.count || 0;
     const lowStockCount = (inventoryRes.data || []).filter(
@@ -77,6 +80,8 @@ export async function GET() {
 
     return NextResponse.json({
       revenue,
+      expenses, // 🔒 NEW
+      netProfit, // 🔒 NEW
       activeGuests,
       actionItems: pendingBookings + newInquiries,
       pendingBookings,
@@ -87,7 +92,7 @@ export async function GET() {
       maintenance: maintenanceRes.data || [],
     });
   } catch (error) {
-    console.error("Dashboard API Error:", error);
+    console.error("Dashboard Error:", error);
     return NextResponse.json(
       { error: "Failed to fetch dashboard data" },
       { status: 500 },

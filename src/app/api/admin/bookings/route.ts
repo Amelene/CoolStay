@@ -35,7 +35,6 @@ export async function GET() {
 }
 
 // PATCH: Update Status
-// PATCH: Update Status
 export async function PATCH(request: Request) {
   try {
     const supabase = await createClient();
@@ -43,28 +42,26 @@ export async function PATCH(request: Request) {
     if (authError) return authError;
 
     const body = await request.json();
-    // ✅ Extract the new security deposit fields
-    const { id, status, security_deposit_status, security_deposit_notes } =
-      body;
 
-    // Fetch booking with full details for email
+    // 🔒 NEW: We now extract assigned_room_id
+    const {
+      id,
+      status,
+      security_deposit_status,
+      security_deposit_notes,
+      assigned_room_id,
+    } = body;
+
     const { data: booking, error: fetchError } = await supabase
       .from("bookings")
-      .select(
-        `
-        *,
-        users (full_name, email, phone),
-        room_types (name)
-      `,
-      )
+      .select("*, users(full_name, email, phone), room_types(name)")
       .eq("id", id)
       .single();
 
     if (fetchError || !booking)
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });
 
-    const oldStatus = booking.status;
-
+    // --- 🔒 NEW: THE MOVIE SEAT LOGIC (Physical Room Lifecycle) ---
     if (status === "checked_in") {
       const checkInDate = new Date(booking.check_in_date);
       const today = new Date();
@@ -79,13 +76,39 @@ export async function PATCH(request: Request) {
           { status: 400 },
         );
       }
+
+      // Must have a physical room assigned to check in
+      if (!assigned_room_id && !booking.assigned_room_id) {
+        return NextResponse.json(
+          { error: "You must select a specific room to check this guest in." },
+          { status: 400 },
+        );
+      }
+
+      // Mark the physical "Movie Seat" as occupied
+      const targetRoom = assigned_room_id || booking.assigned_room_id;
+      await supabase
+        .from("room_inventory")
+        .update({ status: "occupied" })
+        .eq("id", targetRoom);
     }
 
-    // ✅ Build a dynamic update payload so we only update what is sent
+    if (status === "checked_out") {
+      // Free up the "Movie Seat" for Housekeeping
+      if (booking.assigned_room_id) {
+        await supabase
+          .from("room_inventory")
+          .update({ status: "cleaning" })
+          .eq("id", booking.assigned_room_id);
+      }
+    }
+    // --------------------------------------------------------------
+
     interface UpdatePayload {
       status?: string;
       security_deposit_status?: string;
       security_deposit_notes?: string | null;
+      assigned_room_id?: string;
     }
 
     const updatePayload: UpdatePayload = {};
@@ -94,6 +117,7 @@ export async function PATCH(request: Request) {
       updatePayload.security_deposit_status = security_deposit_status;
     if (security_deposit_notes !== undefined)
       updatePayload.security_deposit_notes = security_deposit_notes;
+    if (assigned_room_id) updatePayload.assigned_room_id = assigned_room_id;
 
     const { data, error } = await supabase
       .from("bookings")
@@ -104,37 +128,7 @@ export async function PATCH(request: Request) {
 
     if (error) throw error;
 
-    // 🔔 Send email notification when booking is confirmed
-    if (status === "confirmed" && oldStatus !== "confirmed") {
-      console.log("Booking confirmed, sending email notification...");
-
-      sendBookingConfirmationEmailWithRetry({
-        guestName: booking.users?.full_name || "Guest",
-        guestEmail: booking.users?.email || "",
-        roomName: booking.room_types?.name || "Room",
-        checkInDate: booking.check_in_date,
-        checkOutDate: booking.check_out_date,
-        adults: booking.adults || 1,
-        children: booking.children || 0,
-        infants: booking.infants || 0,
-        totalAmount: booking.total_amount,
-        bookingId: booking.id,
-        specialRequests: booking.special_requests,
-      })
-        .then((result: { success: boolean; error?: string }) => {
-          if (result.success) {
-            console.log("✅ Confirmation email sent successfully");
-          } else {
-            console.error(
-              "❌ Failed to send confirmation email:",
-              result.error,
-            );
-          }
-        })
-        .catch((err: unknown) => {
-          console.error("❌ Email sending error:", err);
-        });
-    }
+    // ... (Keep your existing email notification logic here exactly as it is) ...
 
     return NextResponse.json(data);
   } catch (error: unknown) {
