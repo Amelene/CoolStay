@@ -334,7 +334,7 @@ export async function POST(request: Request) {
       .eq("id", room_type_id)
       .single();
 
-    // 🔒 NEW: Trigger Admin Notification for New Booking
+    // 🔒 Admin Notification for New Booking (user_id: null = admin-only)
     await adminDb.from("notifications").insert({
       id: crypto.randomUUID(),
       title: "New Pending Booking",
@@ -342,7 +342,7 @@ export async function POST(request: Request) {
       type: "booking",
       is_read: false,
       created_at: new Date().toISOString(),
-      user_id: user.id
+      // user_id intentionally omitted → defaults to null (admin alert)
     });
 
     sendBookingConfirmationEmailWithRetry({

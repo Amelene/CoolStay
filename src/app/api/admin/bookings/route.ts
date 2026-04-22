@@ -128,6 +128,29 @@ export async function PATCH(request: Request) {
 
     if (error) throw error;
 
+    // 🔒 NEW: Trigger User Notifications on Status Change
+    if (status === "checked_in" && booking.guest_id) {
+      await supabase.from("notifications").insert({
+        id: crypto.randomUUID(),
+        user_id: booking.guest_id,
+        title: "Checked In! 🏖️",
+        message: `Welcome to CoolStay! You have been successfully checked into your room.`,
+        type: "booking_update",
+        is_read: false,
+        created_at: new Date().toISOString(),
+      });
+    } else if (status === "confirmed" && booking.guest_id) {
+      await supabase.from("notifications").insert({
+        id: crypto.randomUUID(),
+        user_id: booking.guest_id,
+        title: "Booking Confirmed",
+        message: `Your booking for ${booking.check_in_date} is fully confirmed. See you soon!`,
+        type: "booking_update",
+        is_read: false,
+        created_at: new Date().toISOString(),
+      });
+    }
+
     // ... (Keep your existing email notification logic here exactly as it is) ...
 
     return NextResponse.json(data);

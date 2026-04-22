@@ -27,10 +27,12 @@ export default function NotificationBell() {
     setLoading(true);
     const supabase = createClient();
     try {
-      // Fetch the 10 most recent notifications
+      // Fetch the 10 most recent Admin notifications (user_id = null, non-promo)
       const { data, error } = await supabase
         .from("notifications")
         .select("*")
+        .is("user_id", null)       // 🔒 Only admin-level alerts (no user_id)
+        .neq("type", "promo")      // 🔒 Promos go to guests only, not admin bell
         .order("created_at", { ascending: false })
         .limit(10);
 

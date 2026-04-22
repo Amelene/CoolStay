@@ -53,7 +53,7 @@ export async function POST(request: Request) {
 
     if (error) throw error;
 
-    // 🔒 NEW: Trigger Admin Notification for Uploaded Receipt
+    // 🔒 Admin Notification for Uploaded Receipt (user_id: null = admin-only)
     await supabase.from("notifications").insert({
       id: crypto.randomUUID(),
       title: "Payment Receipt Uploaded",
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       type: "payment",
       is_read: false,
       created_at: new Date().toISOString(),
-      user_id: user.id
+      // user_id intentionally omitted → defaults to null (admin alert)
     });
 
     return NextResponse.json(data);

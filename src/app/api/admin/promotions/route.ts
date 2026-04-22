@@ -56,6 +56,27 @@ export async function POST(request: Request) {
       .select();
 
     if (error) throw error;
+
+    // 🔒 Broadcast Promo to all Users! (user_id = null → global)
+    const { code, discount_type, discount_value, valid_until } = body;
+    await supabase.from("notifications").insert({
+      id: crypto.randomUUID(),
+      title: `New Promo: ${code.toUpperCase()}! 🎉`,
+      message: `Use code ${code.toUpperCase()} to get ${
+        discount_type === "percentage"
+          ? discount_value + "%"
+          : "₱" + discount_value
+      } off your next stay! Valid until ${
+        valid_until
+          ? new Date(valid_until).toLocaleDateString()
+          : "supplies last"
+      }.`,
+      type: "promo",
+      is_read: false,
+      created_at: new Date().toISOString(),
+      // user_id omitted → null, broadcasts to every guest's bell
+    });
+
     return NextResponse.json(data[0]);
   } catch (error: unknown) {
     const message =

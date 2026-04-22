@@ -300,30 +300,40 @@ export async function PATCH(request: Request) {
       }`,
     );
 
+    // Fetch the booking to get the guest_id for our notifications
+    const { data: bookingData } = await supabase
+      .from("bookings")
+      .select("guest_id")
+      .eq("id", payment.booking_id)
+      .maybeSingle();
+
     // 3. IF REJECTED: Send In-App Notification to User
-    if (status === "failed" && payment.booking_id) {
-      // Fetch the booking to get the guest_id
-      const { data: bookingData } = await supabase
-        .from("bookings")
-        .select("guest_id")
-        .eq("id", payment.booking_id)
-        .maybeSingle();
-
-      if (bookingData?.guest_id) {
-        await supabase.from("notifications").insert({
-          user_id: bookingData.guest_id,
-          title: "Payment Rejected",
-          message: `Your payment for booking #${payment.booking_id.substring(0, 8)} was rejected. Reason: ${description || "Invalid receipt."}`,
-          type: "payment_failed",
-          read: false, // Ensures it shows up as a red dot/unread in their bell icon
-        });
-      }
-
+    if (status === "failed" && bookingData?.guest_id) {
+      await supabase.from("notifications").insert({
+        id: crypto.randomUUID(),
+        user_id: bookingData.guest_id,
+        title: "Payment Rejected",
+        message: `Your payment for booking #${payment.booking_id?.substring(0, 8)} was rejected. Reason: ${description || "Invalid receipt."}`,
+        type: "payment_failed",
+        is_read: false, // 🔒 Fixed from "read" to "is_read"
+        created_at: new Date().toISOString(),
+      });
       return NextResponse.json({ success: true, payment });
     }
 
-    // 4. IF APPROVED: Trigger Auto-Balance
+    // 4. IF APPROVED: Send Notification and Auto-Balance
     if (status === "completed" && payment.booking_id) {
+      if (bookingData?.guest_id) {
+        await supabase.from("notifications").insert({
+          id: crypto.randomUUID(),
+          user_id: bookingData.guest_id,
+          title: "Payment Verified ✅",
+          message: `Your payment of ₱${payment.amount} has been successfully verified!`,
+          type: "payment_success",
+          is_read: false,
+          created_at: new Date().toISOString(),
+        });
+      }
       await updateBookingStatus(supabase, payment.booking_id);
     }
 
