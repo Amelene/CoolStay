@@ -36,6 +36,17 @@ export async function POST(request: Request) {
 
     if (error) throw error;
 
+    // 🔒 NEW: Trigger Admin Notification for Event Inquiry
+    await supabase.from("notifications").insert({
+      id: crypto.randomUUID(),
+      title: "New Event Inquiry",
+      message: `${validData.fullName} inquired about a ${validData.eventType} for ${validData.guestCount} guests.`,
+      type: "inquiry",
+      is_read: false,
+      created_at: new Date().toISOString(),
+      // user_id is null here since they might not be logged in
+    });
+
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     console.error("Event inquiry error:", error);

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { User, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import NotificationBell from "./NotificationBell";
 
 export default function AdminNavbar() {
   const router = useRouter();
@@ -53,6 +54,9 @@ export default function AdminNavbar() {
 
       {/* Right Side: Profile & Actions */}
       <div className="flex items-center gap-4 sm:gap-8">
+        {/* 🔒 INSERT BELL HERE */}
+        <NotificationBell />
+
         <button
           onClick={handleSignOut}
           className="text-xs font-bold text-white hover:text-gray-300 transition-colors uppercase tracking-wider flex items-center gap-2"

@@ -53,6 +53,17 @@ export async function POST(request: Request) {
 
     if (error) throw error;
 
+    // 🔒 NEW: Trigger Admin Notification for Uploaded Receipt
+    await supabase.from("notifications").insert({
+      id: crypto.randomUUID(),
+      title: "Payment Receipt Uploaded",
+      message: `A guest uploaded a ${method} receipt for ₱${amount}. Please verify.`,
+      type: "payment",
+      is_read: false,
+      created_at: new Date().toISOString(),
+      user_id: user.id
+    });
+
     return NextResponse.json(data);
   } catch (err: unknown) {
     let message = "Payment submission failed";
