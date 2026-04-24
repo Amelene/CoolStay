@@ -10,13 +10,18 @@ interface AddTaskModalProps {
   onSuccess: () => void;
 }
 
-// Define the staff type to satisfy TypeScript
 type StaffMember = {
   id: string;
   first_name: string;
   last_name: string;
   position: string;
   status: string;
+};
+
+// Define the shape of our Shift API response
+type ShiftData = {
+  staff_id: number;
+  shift_type: string;
 };
 
 export default function AddTaskModal({
@@ -27,24 +32,55 @@ export default function AddTaskModal({
   const [loading, setLoading] = useState(false);
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
 
+  // 🔒 NEW: State for our Cross-Referencing Engine
+  const [shiftsForDate, setShiftsForDate] = useState<Record<string, string>>(
+    {},
+  );
+  const [isFetchingShifts, setIsFetchingShifts] = useState(false);
+
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [staffId, setStaffId] = useState("");
   const [priority, setPriority] = useState("medium");
   const [dueDate, setDueDate] = useState("");
 
-  // Fetch staff members to populate the dropdown
+  // 1. Fetch Master Staff List
   useEffect(() => {
     if (isOpen) {
       fetch("/api/admin/staff")
         .then((res) => res.json())
         .then((data: StaffMember[]) => {
-          // Filter to only active staff
           setStaffList(data.filter((s) => s.status === "active") || []);
         })
         .catch((err) => console.error("Failed to load staff", err));
     }
   }, [isOpen]);
+
+  // 🔒 2. The Trigger: Listen to Due Date and fetch shifts for that day!
+  useEffect(() => {
+    if (!dueDate) {
+      setShiftsForDate({});
+      return;
+    }
+
+    setIsFetchingShifts(true);
+    fetch(`/api/admin/shifts?start=${dueDate}&end=${dueDate}`)
+      .then((res) => res.json())
+      .then((data: ShiftData[]) => {
+        const shiftMap: Record<string, string> = {};
+        if (Array.isArray(data)) {
+          data.forEach((shift) => {
+            if (shift.shift_type !== "off") {
+              // Convert ID to string to match staffList IDs safely
+              shiftMap[String(shift.staff_id)] = shift.shift_type;
+            }
+          });
+        }
+        setShiftsForDate(shiftMap);
+      })
+      .catch((err) => console.error("Failed to load shifts", err))
+      .finally(() => setIsFetchingShifts(false));
+  }, [dueDate]);
 
   if (!isOpen) return null;
 
@@ -92,6 +128,10 @@ export default function AddTaskModal({
     }
   };
 
+  // 🔒 3. Cross-Reference: Split staff into Scheduled vs Off Duty
+  const scheduledStaff = staffList.filter((s) => shiftsForDate[s.id]);
+  const unscheduledStaff = staffList.filter((s) => !shiftsForDate[s.id]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
       <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden flex flex-col">
@@ -122,41 +162,18 @@ export default function AddTaskModal({
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-              Assign To <span className="text-red-500">*</span>
-            </label>
-            <select
-              required
-              value={staffId}
-              onChange={(e) => setStaffId(e.target.value)}
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-            >
-              <option value="" disabled>
-                Select a staff member...
-              </option>
-              {staffList.map((staff) => (
-                <option key={staff.id} value={staff.id}>
-                  {staff.first_name} {staff.last_name} ({staff.position})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-              Description
-            </label>
-            <textarea
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-              placeholder="Add details about the task..."
-            />
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+                Due Date
+              </label>
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
                 Priority
@@ -171,17 +188,66 @@ export default function AddTaskModal({
                 <option value="high">High</option>
               </select>
             </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                Due Date
-              </label>
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-            </div>
+          </div>
+
+          <div>
+            <label className="flex justify-between text-xs font-bold text-slate-500 uppercase mb-1">
+              <span>
+                Assign To <span className="text-red-500">*</span>
+              </span>
+              {isFetchingShifts && (
+                <span className="text-blue-500 normal-case animate-pulse">
+                  Checking schedule...
+                </span>
+              )}
+            </label>
+            <select
+              required
+              value={staffId}
+              onChange={(e) => setStaffId(e.target.value)}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="" disabled>
+                Select a staff member...
+              </option>
+
+              {/* 🔒 4. Smart UI: Split the dropdown based on schedule */}
+              {dueDate && scheduledStaff.length > 0 && (
+                <optgroup label="🟢 ON DUTY THIS DAY">
+                  {scheduledStaff.map((staff) => (
+                    <option key={staff.id} value={staff.id}>
+                      {staff.first_name} {staff.last_name} (
+                      {shiftsForDate[staff.id].toUpperCase()})
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+
+              <optgroup
+                label={
+                  dueDate ? "🔴 OFF DUTY / UNSCHEDULED" : "All Active Staff"
+                }
+              >
+                {unscheduledStaff.map((staff) => (
+                  <option key={staff.id} value={staff.id}>
+                    {staff.first_name} {staff.last_name} ({staff.position})
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              Description
+            </label>
+            <textarea
+              rows={2}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+              placeholder="Add details about the task..."
+            />
           </div>
 
           <div className="pt-2">
