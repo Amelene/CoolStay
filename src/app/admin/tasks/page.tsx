@@ -12,6 +12,7 @@ import {
 import AddTaskModal from "@/components/admin/tasks/AddTaskModal";
 import { toast } from "sonner";
 
+// 🔒 NEW: Updated Task Type to include the room
 type Task = {
   id: string;
   title: string;
@@ -19,6 +20,10 @@ type Task = {
   status: "pending" | "in_progress" | "completed";
   priority: "low" | "medium" | "high";
   due_date: string | null;
+  room_id: string | null;
+  room_inventory?: {
+    room_number: string;
+  } | null;
   staff: {
     first_name: string;
     last_name: string;
@@ -51,7 +56,6 @@ export default function TaskBoardPage() {
 
   const updateTaskStatus = async (taskId: string, newStatus: string) => {
     const originalTasks = [...tasks];
-    // Optimistic UI update with proper type casting
     setTasks(
       tasks.map((t) =>
         t.id === taskId ? { ...t, status: newStatus as Task["status"] } : t,
@@ -67,13 +71,12 @@ export default function TaskBoardPage() {
       if (!res.ok) throw new Error("Failed to update status");
       toast.success("Task updated");
     } catch (error) {
-      console.error(error); // Logs the error so it is 'used' for ESLint
-      setTasks(originalTasks); // Revert on failure
+      console.error(error);
+      setTasks(originalTasks);
       toast.error("Could not update task status");
     }
   };
 
-  // Group tasks by status
   const columns = {
     pending: tasks.filter((t) => t.status === "pending"),
     in_progress: tasks.filter((t) => t.status === "in_progress"),
@@ -111,7 +114,6 @@ export default function TaskBoardPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* COLUMN: PENDING */}
           <div className="bg-slate-100/50 p-4 rounded-3xl border border-slate-200 min-h-125">
             <div className="flex items-center gap-2 mb-4 px-2">
               <Clock className="w-5 h-5 text-slate-500" />
@@ -133,7 +135,6 @@ export default function TaskBoardPage() {
             </div>
           </div>
 
-          {/* COLUMN: IN PROGRESS */}
           <div className="bg-blue-50/50 p-4 rounded-3xl border border-blue-100 min-h-125">
             <div className="flex items-center gap-2 mb-4 px-2">
               <AlertCircle className="w-5 h-5 text-blue-500" />
@@ -155,7 +156,6 @@ export default function TaskBoardPage() {
             </div>
           </div>
 
-          {/* COLUMN: COMPLETED */}
           <div className="bg-green-50/50 p-4 rounded-3xl border border-green-100 min-h-125">
             <div className="flex items-center gap-2 mb-4 px-2">
               <CheckCircle2 className="w-5 h-5 text-green-500" />
@@ -189,7 +189,6 @@ export default function TaskBoardPage() {
   );
 }
 
-// Define specific props for the TaskCard
 interface TaskCardProps {
   task: Task;
   onMove: () => void;
@@ -198,7 +197,6 @@ interface TaskCardProps {
   isCompleted?: boolean;
 }
 
-// Sub-component for the individual task cards
 function TaskCard({
   task,
   onMove,
@@ -211,13 +209,22 @@ function TaskCard({
       className={`bg-white p-4 rounded-2xl border shadow-sm transition-all hover:shadow-md ${isCompleted ? "border-green-200 opacity-75" : "border-slate-200"}`}
     >
       <div className="flex justify-between items-start mb-2">
-        <span
-          className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${priorityColors[task.priority]}`}
-        >
-          {task.priority} Priority
-        </span>
+        {/* 🔒 NEW: Flex container for Priority AND Room Badge */}
+        <div className="flex flex-wrap gap-2">
+          <span
+            className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${priorityColors[task.priority]}`}
+          >
+            {task.priority} Priority
+          </span>
+          {task.room_inventory?.room_number && (
+            <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+              🏠 {task.room_inventory.room_number}
+            </span>
+          )}
+        </div>
+
         {task.due_date && (
-          <span className="text-[10px] text-slate-400 font-medium">
+          <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap ml-2">
             Due: {new Date(task.due_date).toLocaleDateString()}
           </span>
         )}

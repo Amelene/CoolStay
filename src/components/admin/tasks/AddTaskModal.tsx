@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { X, Loader2, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
 
 interface AddTaskModalProps {
   isOpen: boolean;
@@ -18,10 +19,15 @@ type StaffMember = {
   status: string;
 };
 
-// Define the shape of our Shift API response
 type ShiftData = {
   staff_id: number;
   shift_type: string;
+};
+
+type Room = {
+  id: string;
+  room_number: string;
+  status: string;
 };
 
 export default function AddTaskModal({
@@ -32,19 +38,21 @@ export default function AddTaskModal({
   const [loading, setLoading] = useState(false);
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
 
-  // 🔒 NEW: State for our Cross-Referencing Engine
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [roomId, setRoomId] = useState("");
+
   const [shiftsForDate, setShiftsForDate] = useState<Record<string, string>>(
     {},
   );
   const [isFetchingShifts, setIsFetchingShifts] = useState(false);
 
+  const [taskCategory, setTaskCategory] = useState("general");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [staffId, setStaffId] = useState("");
   const [priority, setPriority] = useState("medium");
   const [dueDate, setDueDate] = useState("");
 
-  // 1. Fetch Master Staff List
   useEffect(() => {
     if (isOpen) {
       fetch("/api/admin/staff")
@@ -53,10 +61,19 @@ export default function AddTaskModal({
           setStaffList(data.filter((s) => s.status === "active") || []);
         })
         .catch((err) => console.error("Failed to load staff", err));
+
+      const fetchRooms = async () => {
+        const supabase = createClient();
+        const { data } = await supabase
+          .from("room_inventory")
+          .select("id, room_number, status")
+          .order("room_number");
+        if (data) setRooms(data);
+      };
+      fetchRooms();
     }
   }, [isOpen]);
 
-  // 🔒 2. The Trigger: Listen to Due Date and fetch shifts for that day!
   useEffect(() => {
     if (!dueDate) {
       setShiftsForDate({});
@@ -71,7 +88,6 @@ export default function AddTaskModal({
         if (Array.isArray(data)) {
           data.forEach((shift) => {
             if (shift.shift_type !== "off") {
-              // Convert ID to string to match staffList IDs safely
               shiftMap[String(shift.staff_id)] = shift.shift_type;
             }
           });
@@ -81,6 +97,19 @@ export default function AddTaskModal({
       .catch((err) => console.error("Failed to load shifts", err))
       .finally(() => setIsFetchingShifts(false));
   }, [dueDate]);
+
+  useEffect(() => {
+    if (taskCategory === "general") {
+      if (title.startsWith("[CLEANING]") || title.startsWith("[MAINTENANCE]")) {
+        setTitle("");
+      }
+      return;
+    }
+
+    const roomName =
+      rooms.find((r) => r.id === roomId)?.room_number || "Facility";
+    setTitle(`[${taskCategory.toUpperCase()}] - ${roomName}`);
+  }, [taskCategory, roomId, rooms]);
 
   if (!isOpen) return null;
 
@@ -104,6 +133,7 @@ export default function AddTaskModal({
           staff_id: staffId,
           priority,
           due_date: dueDate || null,
+          room_id: roomId || null,
         }),
       });
 
@@ -116,6 +146,8 @@ export default function AddTaskModal({
       setStaffId("");
       setPriority("medium");
       setDueDate("");
+      setRoomId("");
+      setTaskCategory("general");
 
       onSuccess();
       onClose();
@@ -128,9 +160,30 @@ export default function AddTaskModal({
     }
   };
 
-  // 🔒 3. Cross-Reference: Split staff into Scheduled vs Off Duty
   const scheduledStaff = staffList.filter((s) => shiftsForDate[s.id]);
   const unscheduledStaff = staffList.filter((s) => !shiftsForDate[s.id]);
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "available":
+        return "🟢";
+      case "occupied":
+        return "🔴";
+      case "cleaning":
+        return "🟡";
+      case "maintenance":
+        return "🟠";
+      case "out_of_order":
+        return "⚫";
+      default:
+        return "⚪";
+    }
+  };
+
+  // Helper to make text look pretty (e.g., "out_of_order" -> "Out of order")
+  const formatStatusText = (status: string) => {
+    return status.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
@@ -148,6 +201,53 @@ export default function AddTaskModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+                Category <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={taskCategory}
+                onChange={(e) => setTaskCategory(e.target.value)}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none font-medium"
+              >
+                <option value="general">General Task</option>
+                <option value="cleaning">🧹 Housekeeping</option>
+                <option value="maintenance">🔧 Maintenance</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+                Related Room
+              </label>
+              <select
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                <option value="">No specific room</option>
+                {rooms.map((room) => {
+                  const isOccupied = room.status === "occupied";
+                  return (
+                    // 🔒 NEW: Disables the option if Occupied!
+                    <option key={room.id} value={room.id} disabled={isOccupied}>
+                      {room.room_number} — {formatStatusText(room.status)}{" "}
+                      {getStatusIcon(room.status)}
+                    </option>
+                  );
+                })}
+              </select>
+
+              {/* 🔒 NEW: The Room Legend */}
+              <div className="mt-1.5 flex gap-2.5 text-[9px] font-bold text-slate-500 uppercase tracking-wide">
+                <span>🟢 Avail</span>
+                <span>🔴 Occ</span>
+                <span>🟡 Clean</span>
+              </div>
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
               Task Title <span className="text-red-500">*</span>
@@ -157,7 +257,7 @@ export default function AddTaskModal({
               required
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold text-[#0A1A44]"
               placeholder="e.g. Deep clean Cottage 4"
             />
           </div>
@@ -211,7 +311,6 @@ export default function AddTaskModal({
                 Select a staff member...
               </option>
 
-              {/* 🔒 4. Smart UI: Split the dropdown based on schedule */}
               {dueDate && scheduledStaff.length > 0 && (
                 <optgroup label="🟢 ON DUTY THIS DAY">
                   {scheduledStaff.map((staff) => (
@@ -229,7 +328,8 @@ export default function AddTaskModal({
                 }
               >
                 {unscheduledStaff.map((staff) => (
-                  <option key={staff.id} value={staff.id}>
+                  // 🔒 NEW: Disables Off Duty staff if a due date is selected!
+                  <option key={staff.id} value={staff.id} disabled={!!dueDate}>
                     {staff.first_name} {staff.last_name} ({staff.position})
                   </option>
                 ))}
