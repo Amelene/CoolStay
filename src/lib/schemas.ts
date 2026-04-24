@@ -93,7 +93,8 @@ export const EventInquirySchema = z.object({
   guestCount: z.coerce
     .number()
     .int()
-    .min(10, "Minimum of 10 guests for events"),
+    .min(10, "Minimum of 10 guests for events")
+    .max(150, "Maximum of 150 guests allowed for events"),
   message: z.string().optional(),
 });
 
