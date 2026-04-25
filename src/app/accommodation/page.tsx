@@ -24,7 +24,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-// --- TYPES ---
 interface RoomType {
   id: string;
   name: string;
@@ -36,13 +35,16 @@ interface RoomType {
   price_day?: number;
   price_night?: number;
   price_overnight?: number;
-  // ✅ NEW FIELDS
   capacity: number;
   avg_rating?: number;
   review_count?: number;
 }
 
-// --- HELPERS ---
+// 🔒 THE FIX: Create a strict type for the raw Supabase response to avoid 'any'
+interface RawRoomData extends Omit<RoomType, "avg_rating" | "review_count"> {
+  reviews?: { rating: number }[];
+}
+
 const getDaysInMonth = (year: number, month: number) =>
   new Date(year, month + 1, 0).getDate();
 const getFirstDayOfMonth = (year: number, month: number) =>
@@ -56,7 +58,6 @@ function AccommodationContent() {
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
 
-  // Search State
   const [checkInDate, setCheckInDate] = useState("");
   const [checkOutDate, setCheckOutDate] = useState("");
 
@@ -71,6 +72,9 @@ function AccommodationContent() {
 
   const calendarRef = useRef<HTMLDivElement>(null);
   const guestMenuRef = useRef<HTMLDivElement>(null);
+
+  // 🔒 THE FIX: Safeguard ref to prevent infinite loops when adding router to deps
+  const hasInitialized = useRef(false);
 
   const [selectedRoom, setSelectedRoom] = useState<BookingData | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -89,11 +93,13 @@ function AccommodationContent() {
   }, []);
 
   useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true; // Lock it immediately
+
     const init = async () => {
       setLoading(true);
       try {
         await fetchRooms();
-
         const returnCheckIn = searchParams.get("check_in");
         const returnCheckOut = searchParams.get("check_out");
         const returnRoomId = searchParams.get("room_id");
@@ -112,7 +118,6 @@ function AccommodationContent() {
             .eq("is_active", true)
             .eq("id", returnRoomId)
             .single();
-
           if (data) {
             setSelectedRoom({
               id: data.id,
@@ -132,25 +137,21 @@ function AccommodationContent() {
         setLoading(false);
       }
     };
-
     init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [router, searchParams]); // 🔒 THE FIX: Linter is happy, logic is safe.
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
         calendarRef.current &&
         !calendarRef.current.contains(event.target as Node)
-      ) {
+      )
         setShowCalendar(false);
-      }
       if (
         guestMenuRef.current &&
         !guestMenuRef.current.contains(event.target as Node)
-      ) {
+      )
         setShowGuestMenu(false);
-      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -158,7 +159,6 @@ function AccommodationContent() {
 
   const fetchRooms = async () => {
     const supabase = createClient();
-    // ✅ Updated to fetch reviews for rating calc
     const { data, error } = await supabase
       .from("room_types")
       .select("*, reviews(rating)")
@@ -167,21 +167,15 @@ function AccommodationContent() {
     if (error) {
       toast.error("Failed to load rooms");
     } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const roomsWithData = (data || []).map((room: any) => {
-        const ratings =
-          room.reviews?.map((r: { rating: number }) => r.rating) || [];
+      // 🔒 THE FIX: Strict typing for the mapped data
+      const roomsWithData = ((data as RawRoomData[]) || []).map((room) => {
+        const ratings = room.reviews?.map((r) => r.rating) || [];
         const count = ratings.length;
         const avg =
           count > 0
             ? ratings.reduce((a: number, b: number) => a + b, 0) / count
             : 0;
-
-        return {
-          ...room,
-          avg_rating: avg,
-          review_count: count,
-        };
+        return { ...room, avg_rating: avg, review_count: count };
       });
       setRooms(roomsWithData);
     }
@@ -215,12 +209,10 @@ function AccommodationContent() {
     );
     const year = targetDate.getFullYear();
     const month = targetDate.getMonth();
-
     const daysInMonth = getDaysInMonth(year, month);
     const firstDay = getFirstDayOfMonth(year, month);
     const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
     const emptySlots = Array.from({ length: firstDay }, (_, i) => i);
-
     const monthNames = [
       "January",
       "February",
@@ -254,7 +246,6 @@ function AccommodationContent() {
             const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
             const todayStr = new Date().toISOString().split("T")[0];
             const isPast = dateStr < todayStr;
-
             const isSelected =
               dateStr === checkInDate || dateStr === checkOutDate;
             const isInRange =
@@ -284,10 +275,7 @@ function AccommodationContent() {
                 disabled={isPast}
                 onClick={() => handleDateClick(dateStr)}
                 onMouseEnter={() => setHoverDate(dateStr)}
-                className={`
-                  h-8 w-8 text-xs rounded-full flex items-center justify-center transition-all
-                  ${bgClass}
-                `}
+                className={`h-8 w-8 text-xs rounded-full flex items-center justify-center transition-all ${bgClass}`}
               >
                 {day}
               </button>
@@ -303,7 +291,6 @@ function AccommodationContent() {
       toast.error("Please select both check-in and check-out dates");
       return;
     }
-
     if (new Date(checkInDate) > new Date(checkOutDate)) {
       toast.error("Check-out date cannot be before check-in date");
       return;
@@ -311,16 +298,14 @@ function AccommodationContent() {
 
     setSearching(true);
     const supabase = createClient();
-
     const totalGuests = adults + children;
 
     try {
       const { data: allRooms, error: roomsError } = await supabase
         .from("room_types")
-        .select("*, reviews(rating)") // Include reviews for ratings
+        .select("*, reviews(rating)")
         .eq("is_active", true)
         .gte("capacity", totalGuests);
-
       if (roomsError) throw roomsError;
 
       const searchStart = checkInDate;
@@ -337,25 +322,22 @@ function AccommodationContent() {
         .neq("status", "cancelled")
         .lt("check_in_date", searchEnd)
         .gt("check_out_date", searchStart);
-
       if (bookingsError) throw bookingsError;
 
       const bookingCounts: Record<string, number> = {};
-
       busyBookings?.forEach((booking) => {
         bookingCounts[booking.room_type_id] =
           (bookingCounts[booking.room_type_id] || 0) + 1;
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const availableRooms = (allRooms as any[])
+      // 🔒 THE FIX: Strict typing for the filter/map
+      const availableRooms = (allRooms as RawRoomData[])
         .filter((room) => {
           const bookedCount = bookingCounts[room.id] || 0;
           return room.total_rooms > bookedCount;
         })
         .map((room) => {
-          const ratings =
-            room.reviews?.map((r: { rating: number }) => r.rating) || [];
+          const ratings = room.reviews?.map((r) => r.rating) || [];
           const count = ratings.length;
           const avg =
             count > 0
@@ -365,12 +347,9 @@ function AccommodationContent() {
         });
 
       setRooms(availableRooms);
-
-      if (availableRooms.length === 0) {
+      if (availableRooms.length === 0)
         toast.info("No rooms available for this group size/date.");
-      } else {
-        toast.success(`Found ${availableRooms.length} available rooms!`);
-      }
+      else toast.success(`Found ${availableRooms.length} available rooms!`);
     } catch (err) {
       console.error(err);
       toast.error("Something went wrong while searching.");
@@ -404,7 +383,6 @@ function AccommodationContent() {
       )}
 
       <div className="pt-28 pb-20 px-4 sm:px-8 max-w-360 mx-auto">
-        {/* HEADER SECTION (Same as before) */}
         <div className="relative bg-[#0077B6] rounded-3xl p-6 md:p-8 shadow-xl text-white mb-12 mt-8 animate-in slide-in-from-top-10 duration-700">
           <div className="absolute -top-12 left-1/2 -translate-x-1/2 h-24 w-24 bg-white rounded-full border-4 border-white shadow-md flex items-center justify-center overflow-hidden z-10">
             <Image
@@ -417,7 +395,6 @@ function AccommodationContent() {
           </div>
 
           <div className="pt-8 grid grid-cols-1 md:grid-cols-12 gap-6 items-end">
-            {/* 1. DATE PICKER */}
             <div
               className="md:col-span-5 flex flex-col gap-2 relative z-20"
               ref={calendarRef}
@@ -425,7 +402,6 @@ function AccommodationContent() {
               <div className="flex justify-between text-xs font-semibold uppercase tracking-wider opacity-90">
                 <span>Check In & Out</span>
               </div>
-
               <div
                 onClick={() => setShowCalendar(!showCalendar)}
                 className={`bg-white text-gray-700 rounded-xl flex items-center h-14 px-2 shadow-inner overflow-hidden cursor-pointer transition-all ${showCalendar ? "ring-2 ring-[#0A1A44]" : "hover:ring-2 ring-[#0A1A44]/20"}`}
@@ -462,7 +438,6 @@ function AccommodationContent() {
                 </div>
                 <CalendarIcon className="w-5 h-5 text-gray-400 mr-2" />
               </div>
-
               {showCalendar && (
                 <div className="absolute top-full left-0 mt-4 z-50 bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 flex flex-col md:flex-row gap-4 animate-in zoom-in-95 origin-top-left w-full md:w-auto">
                   <div className="absolute top-4 left-4 right-4 flex justify-between pointer-events-none">
@@ -498,7 +473,6 @@ function AccommodationContent() {
               )}
             </div>
 
-            {/* 2. GUEST PICKER */}
             <div
               className="md:col-span-4 flex flex-col gap-2 relative"
               ref={guestMenuRef}
@@ -506,7 +480,6 @@ function AccommodationContent() {
               <span className="text-xs font-semibold uppercase tracking-wider opacity-90">
                 Guests
               </span>
-
               <div
                 onClick={() => setShowGuestMenu(!showGuestMenu)}
                 className={`bg-white text-gray-700 rounded-xl h-14 flex items-center px-4 shadow-inner relative hover:ring-2 ring-[#0A1A44]/20 transition-all cursor-pointer ${showGuestMenu ? "ring-2 ring-[#0A1A44]" : ""}`}
@@ -530,7 +503,6 @@ function AccommodationContent() {
 
               {showGuestMenu && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-slate-100 p-4 z-50 animate-in zoom-in-95 origin-top min-w-70">
-                  {/* Adults Row */}
                   <div className="flex justify-between items-center mb-4">
                     <div>
                       <p className="text-sm font-bold text-slate-700">Adults</p>
@@ -538,19 +510,28 @@ function AccommodationContent() {
                         Ages 13+
                       </p>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1">
                       <button
                         onClick={() => setAdults(Math.max(1, adults - 1))}
-                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 shrink-0"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
-                      <span className="w-4 text-center font-bold text-[#0A1A44]">
-                        {adults}
-                      </span>
+                      <input
+                        type="number"
+                        value={adults === 0 ? "" : adults}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          setAdults(isNaN(val) ? 0 : val);
+                        }}
+                        onBlur={() => {
+                          if (adults < 1) setAdults(1);
+                        }}
+                        className="w-10 text-center font-bold text-[#0A1A44] outline-none bg-transparent appearance-none [&::-webkit-inner-spin-button]:appearance-none m-0"
+                      />
                       <button
                         onClick={() => setAdults(adults + 1)}
-                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -559,7 +540,6 @@ function AccommodationContent() {
 
                   <div className="h-px bg-slate-100 w-full mb-4"></div>
 
-                  {/* Children Row */}
                   <div className="flex justify-between items-center mb-4">
                     <div>
                       <p className="text-sm font-bold text-slate-700">
@@ -569,19 +549,29 @@ function AccommodationContent() {
                         Ages 3-12
                       </p>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1">
                       <button
                         onClick={() => setChildren(Math.max(0, children - 1))}
-                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 shrink-0"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
-                      <span className="w-4 text-center font-bold text-[#0A1A44]">
-                        {children}
-                      </span>
+                      <input
+                        type="number"
+                        value={children === 0 ? "" : children}
+                        placeholder="0"
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          setChildren(isNaN(val) ? 0 : Math.max(0, val));
+                        }}
+                        onBlur={() => {
+                          if (children < 0 || isNaN(children)) setChildren(0);
+                        }}
+                        className="w-10 text-center font-bold text-[#0A1A44] outline-none bg-transparent appearance-none [&::-webkit-inner-spin-button]:appearance-none m-0 placeholder:text-[#0A1A44]"
+                      />
                       <button
                         onClick={() => setChildren(children + 1)}
-                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -590,7 +580,6 @@ function AccommodationContent() {
 
                   <div className="h-px bg-slate-100 w-full mb-4"></div>
 
-                  {/* Infants Row */}
                   <div className="flex justify-between items-center mb-4">
                     <div>
                       <p className="text-sm font-bold text-slate-700">
@@ -600,19 +589,29 @@ function AccommodationContent() {
                         Ages 0-2 Yrs (Free)
                       </p>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1">
                       <button
                         onClick={() => setInfants(Math.max(0, infants - 1))}
-                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 shrink-0"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
-                      <span className="w-4 text-center font-bold text-[#0A1A44]">
-                        {infants}
-                      </span>
+                      <input
+                        type="number"
+                        value={infants === 0 ? "" : infants}
+                        placeholder="0"
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          setInfants(isNaN(val) ? 0 : Math.max(0, val));
+                        }}
+                        onBlur={() => {
+                          if (infants < 0 || isNaN(infants)) setInfants(0);
+                        }}
+                        className="w-10 text-center font-bold text-[#0A1A44] outline-none bg-transparent appearance-none [&::-webkit-inner-spin-button]:appearance-none m-0 placeholder:text-[#0A1A44]"
+                      />
                       <button
                         onClick={() => setInfants(infants + 1)}
-                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200 shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -622,7 +621,6 @@ function AccommodationContent() {
               )}
             </div>
 
-            {/* 3. SEARCH BUTTON */}
             <div className="md:col-span-3">
               <Button
                 onClick={handleSearch}
@@ -641,7 +639,6 @@ function AccommodationContent() {
           </div>
         </div>
 
-        {/* Room List */}
         <div className="space-y-8">
           {loading ? (
             <div className="text-center py-20">
@@ -666,15 +663,12 @@ function AccommodationContent() {
             </div>
           ) : (
             <>
-              {/* Header Row: Title + Search Bar */}
               <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6 px-2">
                 <h2 className="text-2xl font-serif font-bold text-[#0A1A44] shrink-0">
                   {checkInDate && checkOutDate
                     ? "Available Rooms"
                     : "All Accommodations"}
                 </h2>
-
-                {/* Search Bar */}
                 <div className="w-full lg:max-w-md">
                   <div className="relative">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -697,65 +691,43 @@ function AccommodationContent() {
                 </div>
               </div>
 
-              {/* Filter Buttons + Results Count */}
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 px-2">
                 <div className="flex gap-2 flex-wrap">
                   <button
                     onClick={() => setCategoryFilter("all")}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
-                      categoryFilter === "all"
-                        ? "bg-[#0A1A44] text-white shadow-md"
-                        : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
-                    }`}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${categoryFilter === "all" ? "bg-[#0A1A44] text-white shadow-md" : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"}`}
                   >
                     All
                   </button>
                   <button
                     onClick={() => setCategoryFilter("room")}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
-                      categoryFilter === "room"
-                        ? "bg-[#0A1A44] text-white shadow-md"
-                        : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
-                    }`}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${categoryFilter === "room" ? "bg-[#0A1A44] text-white shadow-md" : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"}`}
                   >
                     Rooms
                   </button>
                   <button
                     onClick={() => setCategoryFilter("cottage")}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
-                      categoryFilter === "cottage"
-                        ? "bg-[#0A1A44] text-white shadow-md"
-                        : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
-                    }`}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${categoryFilter === "cottage" ? "bg-[#0A1A44] text-white shadow-md" : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"}`}
                   >
                     Cottages
                   </button>
                   <button
                     onClick={() => setCategoryFilter("event")}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
-                      categoryFilter === "event"
-                        ? "bg-[#0A1A44] text-white shadow-md"
-                        : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
-                    }`}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${categoryFilter === "event" ? "bg-[#0A1A44] text-white shadow-md" : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"}`}
                   >
                     Events
                   </button>
                 </div>
-
                 <span className="text-sm font-bold text-[#0077B6] bg-white px-3 py-1 rounded-full shadow-sm shrink-0">
                   {
                     rooms.filter((room) => {
-                      // Category filter
                       let matchesCategory = true;
-                      if (categoryFilter === "room") {
+                      if (categoryFilter === "room")
                         matchesCategory = room.id.startsWith("rm_");
-                      } else if (categoryFilter === "cottage") {
+                      else if (categoryFilter === "cottage")
                         matchesCategory = room.id.startsWith("cot_");
-                      } else if (categoryFilter === "event") {
+                      else if (categoryFilter === "event")
                         matchesCategory = room.id.startsWith("evt_");
-                      }
-
-                      // Search filter
                       const matchesSearch =
                         searchQuery === "" ||
                         room.name
@@ -764,26 +736,22 @@ function AccommodationContent() {
                         room.description
                           .toLowerCase()
                           .includes(searchQuery.toLowerCase());
-
                       return matchesCategory && matchesSearch;
                     }).length
                   }{" "}
                   Results
                 </span>
               </div>
+
               {rooms
                 .filter((room) => {
-                  // Category filter
                   let matchesCategory = true;
-                  if (categoryFilter === "room") {
+                  if (categoryFilter === "room")
                     matchesCategory = room.id.startsWith("rm_");
-                  } else if (categoryFilter === "cottage") {
+                  else if (categoryFilter === "cottage")
                     matchesCategory = room.id.startsWith("cot_");
-                  } else if (categoryFilter === "event") {
+                  else if (categoryFilter === "event")
                     matchesCategory = room.id.startsWith("evt_");
-                  }
-
-                  // Search filter
                   const matchesSearch =
                     searchQuery === "" ||
                     room.name
@@ -792,7 +760,6 @@ function AccommodationContent() {
                     room.description
                       .toLowerCase()
                       .includes(searchQuery.toLowerCase());
-
                   return matchesCategory && matchesSearch;
                 })
                 .map((room) => (
@@ -819,7 +786,6 @@ function AccommodationContent() {
                       }
                       setSelectedRoom(roomData);
                     }}
-                    // ✅ Passing Props to Card
                     capacity={room.capacity}
                     rating={room.avg_rating}
                     reviewCount={room.review_count}
@@ -829,7 +795,6 @@ function AccommodationContent() {
           )}
         </div>
       </div>
-
       <Footer />
     </main>
   );

@@ -16,14 +16,14 @@ import {
   User as UserIcon,
 } from "lucide-react";
 import { AuthButton } from "@/components/auth/AuthButton";
-import { User } from "@supabase/supabase-js"; // Type
+import { User } from "@supabase/supabase-js";
 
 type EventFormValues = z.infer<typeof EventInquirySchema>;
 
 interface EventInquiryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  user?: User | null; // Accept user prop
+  user?: User | null;
 }
 
 export default function EventInquiryModal({
@@ -52,11 +52,8 @@ export default function EventInquiryModal({
     },
   });
 
-  // AUTO-FILL LOGIC
   useEffect(() => {
     if (user) {
-      // Supabase user metadata stores full_name, phone, etc. usually.
-      // Adjust keys based on your actual auth metadata structure
       const meta = user.user_metadata;
       reset({
         fullName: meta?.full_name || "",
@@ -72,15 +69,14 @@ export default function EventInquiryModal({
 
   if (!isOpen) return null;
 
-  // ... (Rest of onSubmit and render logic remains exactly the same) ...
   const onSubmit = async (data: EventFormValues) => {
     const selectedDate = new Date(data.date);
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Reset time part
+    today.setHours(0, 0, 0, 0);
 
     if (selectedDate < today) {
       toast.error(
-        "Invalid date. Please select a date that is today or in the future."
+        "Invalid date. Please select a date that is today or in the future.",
       );
       return;
     }
@@ -95,14 +91,14 @@ export default function EventInquiryModal({
       if (!res.ok) throw new Error("Failed to send inquiry");
 
       toast.success(
-        "Inquiry sent! Our event coordinator will contact you soon."
+        "Inquiry sent! Our event coordinator will contact you soon.",
       );
-      reset(); // Resets to defaults (which will then be re-filled by useEffect if user exists)
+      reset();
       onClose();
     } catch (error) {
       console.error(error);
       toast.error(
-        "Something went wrong. Please try again or call us directly."
+        "Something went wrong. Please try again or call us directly.",
       );
     } finally {
       setIsSubmitting(false);
@@ -203,9 +199,7 @@ export default function EventInquiryModal({
                 <select
                   {...register("eventType")}
                   defaultValue=""
-                  className={`${inputClass(
-                    errors.eventType?.message as string
-                  )} appearance-none`}
+                  className={`${inputClass(errors.eventType?.message as string)} appearance-none`}
                 >
                   <option value="" disabled>
                     Select Type
@@ -246,6 +240,7 @@ export default function EventInquiryModal({
                 <Users className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                 <input
                   type="number"
+                  max="150" /* 🔒 PHASE 1 UPGRADE: HTML browser restraint */
                   {...register("guestCount")}
                   placeholder="50"
                   className={inputClass(errors.guestCount?.message as string)}

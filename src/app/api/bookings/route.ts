@@ -334,6 +334,17 @@ export async function POST(request: Request) {
       .eq("id", room_type_id)
       .single();
 
+    // 🔒 Admin Notification for New Booking (user_id: null = admin-only)
+    await adminDb.from("notifications").insert({
+      id: crypto.randomUUID(),
+      title: "New Pending Booking",
+      message: `${userProfile?.full_name || "A guest"} booked ${roomDetails?.name || "a room"} for ${check_in}. Waiting for downpayment.`,
+      type: "booking",
+      is_read: false,
+      created_at: new Date().toISOString(),
+      // user_id intentionally omitted → defaults to null (admin alert)
+    });
+
     sendBookingConfirmationEmailWithRetry({
       guestName: userProfile?.full_name || "Guest",
       guestEmail: userProfile?.email || user.email || "",

@@ -135,6 +135,21 @@ export default function DashboardPage() {
     getUser();
   }, []);
 
+  // Auto-open Trips modal when navigated from a booking/payment notification
+  useEffect(() => {
+    // Case 1: Arrived from another page via ?action=trips query param
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("action") === "trips") {
+      setIsHistoryOpen(true);
+      window.history.replaceState({}, "", "/dashboard");
+    }
+
+    // Case 2: Already on dashboard — Navbar fires a CustomEvent instead of navigating
+    const handleOpenTrips = () => setIsHistoryOpen(true);
+    window.addEventListener("coolstay:open-trips", handleOpenTrips);
+    return () => window.removeEventListener("coolstay:open-trips", handleOpenTrips);
+  }, []);
+
   const fetchBookings = useCallback(async () => {
     try {
       const res = await fetch("/api/bookings");

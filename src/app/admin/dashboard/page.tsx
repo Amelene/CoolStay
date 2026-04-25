@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import BookingTimeline from "@/components/admin/BookingTimeline";
 
 // --- DATA TYPES ---
 interface DashboardData {
@@ -185,7 +186,12 @@ export default function AdminDashboardHome() {
         </Link>
       </div>
 
-      {/* 3. LOGISTICS GRID */}
+      {/* 3. BOOKING TIMELINE — Gantt Command Center */}
+      <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
+        <BookingTimeline />
+      </div>
+
+      {/* 4. LOGISTICS GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Arrivals Column */}
         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">

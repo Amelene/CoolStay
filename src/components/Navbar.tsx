@@ -18,25 +18,15 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import NotificationDetailModal from "./NotificationDetailModal";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 interface NavbarProps {
   activePage?: string;
   logoVariant?: "image" | "text";
 }
 
-// Explicit type definition to replace "any"
-type ReviewResponse = {
-  id: string;
-  admin_reply: string;
-  replied_at: string;
-  rating: number;
-  comment: string;
-  is_read?: boolean;
-  read_at?: string | null;
-  room_types?: { name: string }[] | { name: string };
-  Cottages?: { name: string }[] | { name: string };
-};
+// Removed ReviewResponse type as we are using the unified notification type inline
 
 export default function Navbar({
   activePage = "",
@@ -44,6 +34,7 @@ export default function Navbar({
 }: NavbarProps) {
   // 2. Consume Auth Context
   const { user, loading: authLoading, signOut } = useAuth();
+  const router = useRouter();
 
   // We derive the name from the user object directly
   const name = user?.user_metadata?.full_name || "Member";
@@ -58,44 +49,15 @@ export default function Navbar({
   const [notifications, setNotifications] = useState<
     Array<{
       id: string;
-      admin_reply: string;
-      replied_at: string;
-      rating: number;
-      comment: string;
+      title: string;
+      message: string;
+      type: string;
       is_read: boolean;
-      read_at: string | null;
-      room_types?: { name: string } | null;
-      Cottages?: { name: string } | null;
+      created_at: string;
     }>
   >([]);
-  const [selectedNotification, setSelectedNotification] = useState<
-    (typeof notifications)[0] | null
-  >(null);
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
-  const [activePromo, setActivePromo] = useState<{
-    name: string;
-    code: string;
-    discount_value: number;
-    discount_type: string;
-  } | null>(null);
-
-  // Fetch the active promo on load
-  useEffect(() => {
-    const fetchPromo = async () => {
-      try {
-        const res = await fetch("/api/promotions/active");
-        if (res.ok) {
-          const data = await res.json();
-          setActivePromo(data.promo);
-        }
-      } catch (err) {
-        console.error("Failed to fetch promo banner", err);
-      }
-    };
-    fetchPromo();
-  }, []);
 
   useEffect(() => {
     const checkSecurityStatus = async () => {
@@ -120,48 +82,23 @@ export default function Navbar({
     checkSecurityStatus();
   }, [user]);
 
-  // Fetch notifications for admin replies
+  // Fetch unified notifications
   useEffect(() => {
     const fetchNotifications = async () => {
       if (!user) return;
-
       const supabase = createClient();
       try {
-        const { data: reviews } = await supabase
-          .from("reviews")
-          .select(
-            "id, admin_reply, replied_at, rating, comment, is_read, read_at, room_types(name), Cottages(name)",
-          )
-          .eq("user_id", user.id)
-          .not("admin_reply", "is", null)
-          .order("replied_at", { ascending: false });
+        const { data } = await supabase
+          .from("notifications")
+          .select("*")
+          // 🔒 Grab personal alerts OR global promo broadcasts
+          .or(`user_id.eq.${user.id},type.eq.promo`)
+          .order("created_at", { ascending: false })
+          .limit(10);
 
-        if (reviews) {
-          const formattedNotifications = (reviews as ReviewResponse[]).map(
-            (r) => ({
-              id: r.id,
-              admin_reply: r.admin_reply,
-              replied_at: r.replied_at,
-              rating: r.rating,
-              comment: r.comment,
-              is_read: r.is_read || false,
-              read_at: r.read_at || null,
-              room_types:
-                Array.isArray(r.room_types) && r.room_types.length > 0
-                  ? r.room_types[0]
-                  : null,
-              Cottages:
-                Array.isArray(r.Cottages) && r.Cottages.length > 0
-                  ? r.Cottages[0]
-                  : null,
-            }),
-          );
-          setNotifications(formattedNotifications);
-          // Count only unread notifications
-          const unreadCount = formattedNotifications.filter(
-            (n) => !n.is_read,
-          ).length;
-          setUnreadReplies(unreadCount);
+        if (data) {
+          setNotifications(data);
+          setUnreadReplies(data.filter((n) => !n.is_read).length);
         }
       } catch (error) {
         console.error("Failed to fetch notifications:", error);
@@ -170,7 +107,7 @@ export default function Navbar({
 
     if (user) {
       fetchNotifications();
-      // Poll every 30 seconds for new replies
+      // Poll every 30 seconds
       const interval = setInterval(fetchNotifications, 30000);
       return () => clearInterval(interval);
     }
@@ -201,58 +138,60 @@ export default function Navbar({
     await signOut(); // Use the provider's signOut
   };
 
-  const handleNotificationClick = async (
-    notification: (typeof notifications)[0],
-  ) => {
+  const handleNotificationClick = async (notif: typeof notifications[0]) => {
     // Mark as read
-    if (!notification.is_read) {
-      try {
-        const res = await fetch("/api/notifications", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ notificationId: notification.id }),
-        });
+    if (!notif.is_read) {
+      const supabase = createClient();
+      await supabase.from("notifications").update({ is_read: true }).eq("id", notif.id);
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === notif.id ? { ...n, is_read: true } : n))
+      );
+      setUnreadReplies((prev) => Math.max(0, prev - 1));
+    }
+    setIsNotificationOpen(false);
 
-        if (res.ok) {
-          // Update local state
-          setNotifications((prev) =>
-            prev.map((n) =>
-              n.id === notification.id
-                ? { ...n, is_read: true, read_at: new Date().toISOString() }
-                : n,
-            ),
-          );
-          setUnreadReplies((prev) => Math.max(0, prev - 1));
+    // Smart routing based on notification type
+    if (notif.type === "promo") {
+      // Extract promo code from message and copy to clipboard
+      const codeMatch = notif.message.match(/Use code (\S+) to get/);
+      const code = codeMatch?.[1];
+      if (code) {
+        try {
+          await navigator.clipboard.writeText(code);
+          toast.success(`\u2705 Code "${code}" copied to clipboard!`, {
+            description: "Redirecting to Accommodation...",
+          });
+        } catch {
+          toast.info(`Promo code: ${code}`, {
+            description: "Redirecting to Accommodation...",
+          });
         }
-      } catch (error) {
-        console.error("Failed to mark notification as read:", error);
+      }
+      router.push("/accommodation");
+    } else {
+      // ALL other types (booking, payment_success, payment_failed, checkout, etc.)
+      // → open the Your Trips modal
+      if (window.location.pathname === "/dashboard") {
+        // Already on dashboard: fire a CustomEvent so the modal opens immediately
+        // without needing a remount
+        window.dispatchEvent(new CustomEvent("coolstay:open-trips"));
+      } else {
+        // On another page: navigate with query param, dashboard picks it up on mount
+        router.push("/dashboard?action=trips");
       }
     }
-
-    // Open detail modal
-    setSelectedNotification(notification);
-    setIsDetailModalOpen(true);
-    setIsNotificationOpen(false);
   };
 
   const handleMarkAllAsRead = async () => {
+    if (!user) return;
+    // Use ID-based update to handle both personal and promo notifications (null user_id)
+    const unreadIds = notifications.filter((n) => !n.is_read).map((n) => n.id);
+    if (unreadIds.length === 0) return;
     try {
-      const res = await fetch("/api/notifications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      if (res.ok) {
-        // Update all notifications to read
-        setNotifications((prev) =>
-          prev.map((n) => ({
-            ...n,
-            is_read: true,
-            read_at: new Date().toISOString(),
-          })),
-        );
-        setUnreadReplies(0);
-      }
+      const supabase = createClient();
+      await supabase.from("notifications").update({ is_read: true }).in("id", unreadIds);
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+      setUnreadReplies(0);
     } catch (error) {
       console.error("Failed to mark all as read:", error);
     }
@@ -282,24 +221,6 @@ export default function Navbar({
 
   return (
     <header className="fixed top-0 z-50 w-full flex flex-col shadow-md transition-all duration-300">
-      {/* 🔥 DYNAMIC PROMO BANNER (Guest Side Only) */}
-      {activePromo && (
-        <div className="bg-linear-to-r from-orange-500 via-pink-500 to-orange-500 text-white px-4 py-2 text-center text-xs sm:text-sm font-bold tracking-wide flex items-center justify-center gap-2">
-          <span className="animate-pulse">🔥</span>
-          <span>
-            {activePromo.name.toUpperCase()}! Use code{" "}
-            <span className="bg-white text-orange-600 px-2 py-0.5 rounded-md mx-1 font-black shadow-sm">
-              {activePromo.code}
-            </span>{" "}
-            for{" "}
-            {activePromo.discount_type === "percentage"
-              ? `${activePromo.discount_value}%`
-              : `₱${activePromo.discount_value}`}{" "}
-            off your stay!
-          </span>
-          <span className="animate-pulse">🔥</span>
-        </div>
-      )}
 
       <nav className="w-full bg-[#0A1A44] text-white relative">
         <div className="relative mx-auto flex h-20 w-full max-w-360 items-center px-4 sm:px-8">
@@ -424,54 +345,39 @@ export default function Navbar({
                                 {notifications.map((notif) => (
                                   <button
                                     key={notif.id}
-                                    onClick={() =>
-                                      handleNotificationClick(notif)
-                                    }
-                                    className={`w-full px-4 py-3 hover:bg-blue-50 transition-colors text-left ${
+                                    onClick={() => handleNotificationClick(notif)}
+                                    className={`w-full px-4 py-3 hover:bg-blue-50 transition-colors text-left flex gap-3 items-start ${
                                       !notif.is_read ? "bg-blue-50/50" : ""
                                     }`}
                                   >
-                                    <div className="flex items-start gap-2 mb-1">
-                                      {!notif.is_read && (
-                                        <div className="shrink-0 w-2 h-2 bg-blue-600 rounded-full mt-1.5" />
-                                      )}
-                                      <div className="shrink-0 w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
-                                        <span className="text-xs font-bold text-blue-600">
-                                          {notif.rating}★
-                                        </span>
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <p
-                                          className={`text-xs truncate ${
-                                            !notif.is_read
-                                              ? "font-bold text-gray-900"
-                                              : "font-medium text-gray-700"
-                                          }`}
-                                        >
-                                          {notif.room_types?.name ||
-                                            notif.Cottages?.name ||
-                                            "Your Review"}
-                                        </p>
-                                        <p
-                                          className={`text-xs line-clamp-2 mt-1 ${
-                                            !notif.is_read
-                                              ? "text-gray-700"
-                                              : "text-gray-500"
-                                          }`}
-                                        >
-                                          {notif.admin_reply}
-                                        </p>
-                                        <p className="text-[10px] text-gray-400 mt-1">
-                                          {new Date(
-                                            notif.replied_at,
-                                          ).toLocaleDateString("en-US", {
-                                            month: "short",
-                                            day: "numeric",
-                                            hour: "2-digit",
-                                            minute: "2-digit",
-                                          })}
-                                        </p>
-                                      </div>
+                                    {!notif.is_read && (
+                                      <div className="shrink-0 w-2 h-2 bg-blue-600 rounded-full mt-2" />
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <p
+                                        className={`text-xs truncate ${
+                                          !notif.is_read
+                                            ? "font-bold text-gray-900"
+                                            : "font-medium text-gray-700"
+                                        }`}
+                                      >
+                                        {notif.title}
+                                      </p>
+                                      <p
+                                        className={`text-xs line-clamp-2 mt-1 ${
+                                          !notif.is_read ? "text-gray-700" : "text-gray-500"
+                                        }`}
+                                      >
+                                        {notif.message}
+                                      </p>
+                                      <p className="text-[10px] text-gray-400 mt-1 uppercase font-bold">
+                                        {new Date(notif.created_at).toLocaleDateString("en-US", {
+                                          month: "short",
+                                          day: "numeric",
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                        })}
+                                      </p>
                                     </div>
                                   </button>
                                 ))}
@@ -649,17 +555,6 @@ export default function Navbar({
           </div>
         )}
 
-        {/* Notification Detail Modal */}
-        {selectedNotification && (
-          <NotificationDetailModal
-            isOpen={isDetailModalOpen}
-            onClose={() => {
-              setIsDetailModalOpen(false);
-              setSelectedNotification(null);
-            }}
-            notification={selectedNotification}
-          />
-        )}
       </nav>
     </header>
   );
