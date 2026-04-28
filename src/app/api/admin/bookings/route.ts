@@ -10,6 +10,7 @@ export async function GET() {
     const { error: authError } = await authorizeAdmin(supabase);
     if (authError) return authError;
 
+    // Fetch everything first, without aggressive Supabase filters
     const { data, error } = await supabase
       .from("bookings")
       .select(
@@ -23,9 +24,35 @@ export async function GET() {
       .order("created_at", { ascending: false });
 
     if (error) throw error;
-    return NextResponse.json(data);
+
+    // 🔒 THE BULLETPROOF FIX: JavaScript Memory Filter
+    const validBookings = data?.filter((b) => {
+      const hasPaymentAttempt = b.payments && b.payments.length > 0;
+
+      // 1. Hide active Phase 1 abandoned carts (Pending, no receipt uploaded)
+      if (
+        b.status === "pending" &&
+        b.payment_status === "pending" &&
+        !hasPaymentAttempt
+      ) {
+        return false;
+      }
+
+      // 2. Hide Auto-cancelled abandoned carts (Timeout, no receipt uploaded)
+      if (
+        b.status === "cancelled" &&
+        !hasPaymentAttempt &&
+        b.special_requests?.includes("Auto-cancelled")
+      ) {
+        return false;
+      }
+
+      // Show everything else (Phase 2 uploads, Walk-ins, Legitimate cancellations)
+      return true;
+    });
+
+    return NextResponse.json(validBookings);
   } catch (error: unknown) {
-    // ✅ Fix: Log the error so it is "used"
     console.error("API Error:", error);
     return NextResponse.json(
       { error: "Failed to fetch bookings" },
@@ -43,7 +70,6 @@ export async function PATCH(request: Request) {
 
     const body = await request.json();
 
-    // 🔒 NEW: We now extract assigned_room_id
     const {
       id,
       status,
@@ -61,7 +87,6 @@ export async function PATCH(request: Request) {
     if (fetchError || !booking)
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });
 
-    // --- 🔒 NEW: THE MOVIE SEAT LOGIC (Physical Room Lifecycle) ---
     if (status === "checked_in") {
       const checkInDate = new Date(booking.check_in_date);
       const today = new Date();
@@ -77,7 +102,6 @@ export async function PATCH(request: Request) {
         );
       }
 
-      // Must have a physical room assigned to check in
       if (!assigned_room_id && !booking.assigned_room_id) {
         return NextResponse.json(
           { error: "You must select a specific room to check this guest in." },
@@ -85,7 +109,6 @@ export async function PATCH(request: Request) {
         );
       }
 
-      // Mark the physical "Movie Seat" as occupied
       const targetRoom = assigned_room_id || booking.assigned_room_id;
       await supabase
         .from("room_inventory")
@@ -94,7 +117,6 @@ export async function PATCH(request: Request) {
     }
 
     if (status === "checked_out") {
-      // Free up the "Movie Seat" for Housekeeping
       if (booking.assigned_room_id) {
         await supabase
           .from("room_inventory")
@@ -102,7 +124,6 @@ export async function PATCH(request: Request) {
           .eq("id", booking.assigned_room_id);
       }
     }
-    // --------------------------------------------------------------
 
     interface UpdatePayload {
       status?: string;
@@ -128,7 +149,6 @@ export async function PATCH(request: Request) {
 
     if (error) throw error;
 
-    // 🔒 NEW: Trigger User Notifications on Status Change
     if (status === "checked_in" && booking.guest_id) {
       await supabase.from("notifications").insert({
         id: crypto.randomUUID(),
@@ -151,8 +171,6 @@ export async function PATCH(request: Request) {
       });
     }
 
-    // ... (Keep your existing email notification logic here exactly as it is) ...
-
     return NextResponse.json(data);
   } catch (error: unknown) {
     console.error("Update Error:", error);
@@ -163,7 +181,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-// POST: Create Booking (FIXED GUEST COUNTS)
+// POST: Create Booking
 export async function POST(request: Request) {
   try {
     const supabase = await createClient();
@@ -172,7 +190,6 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
-    // ✅ Destructure new fields
     const {
       room_type_id,
       check_in_date,
@@ -190,17 +207,7 @@ export async function POST(request: Request) {
     if (!user)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // Calculate total guests for capacity check (Adults + Children)
     const guests_count = (Number(adults) || 1) + (Number(children) || 0);
-
-    // Availability Check
-    const { count: conflictCount } = await supabase
-      .from("bookings")
-      .select("*", { count: "exact", head: true })
-      .eq("room_type_id", room_type_id)
-      .neq("status", "cancelled")
-      .lt("check_in_date", check_out_date)
-      .gt("check_out_date", check_in_date);
 
     const { data: roomType } = await supabase
       .from("room_types")
@@ -208,18 +215,106 @@ export async function POST(request: Request) {
       .eq("id", room_type_id)
       .single();
 
-    if ((conflictCount || 0) >= (roomType?.total_rooms || 0)) {
+    if (!roomType) throw new Error("Room type not found.");
+
+    // 🔒 FIX 2: PHT TIMEZONE & BUSINESS CUTOFF VALIDATION
+    const nowPHT = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }),
+    );
+    const todayPHTStr = `${nowPHT.getFullYear()}-${String(nowPHT.getMonth() + 1).padStart(2, "0")}-${String(nowPHT.getDate()).padStart(2, "0")}`;
+
+    if (check_in_date === todayPHTStr) {
+      const currentHour = nowPHT.getHours();
+      const roomNameLower = roomType.name.toLowerCase();
+
+      if (roomNameLower.includes("day tour") && currentHour >= 14) {
+        return NextResponse.json(
+          {
+            error:
+              "Same-day Day Tour bookings close at 2:00 PM. Please book for tomorrow.",
+          },
+          { status: 400 },
+        );
+      } else if (roomNameLower.includes("night tour") && currentHour >= 21) {
+        return NextResponse.json(
+          {
+            error:
+              "Same-day Night Tour bookings close at 9:00 PM. Please book for tomorrow.",
+          },
+          { status: 400 },
+        );
+      } else if (!roomNameLower.includes("tour") && currentHour >= 18) {
+        return NextResponse.json(
+          {
+            error:
+              "Same-day room reservations close at 6:00 PM. Please book for tomorrow.",
+          },
+          { status: 400 },
+        );
+      }
+    }
+
+    // 🔒 MISSED FIX: Daily Concurrency Algorithm
+    const searchStart = check_in_date;
+    const searchEnd =
+      check_out_date === check_in_date
+        ? new Date(new Date(check_out_date).getTime() + 86400000)
+            .toISOString()
+            .split("T")[0]
+        : check_out_date;
+
+    const { data: existingBookings, error: fetchError } = await supabase
+      .from("bookings")
+      .select("check_in_date, check_out_date")
+      .eq("room_type_id", room_type_id)
+      .in("status", ["confirmed", "pending", "checked_in"])
+      .lt("check_in_date", searchEnd)
+      .gte("check_out_date", searchStart);
+
+    if (fetchError) throw fetchError;
+
+    let maxConcurrency = 0;
+    const dailyCounts: Record<string, number> = {};
+
+    existingBookings?.forEach((b) => {
+      const bStart = b.check_in_date;
+      const bEnd =
+        b.check_in_date === b.check_out_date
+          ? new Date(new Date(b.check_in_date).getTime() + 86400000)
+              .toISOString()
+              .split("T")[0]
+          : b.check_out_date;
+
+      const overlapStart = new Date(
+        Math.max(new Date(bStart).getTime(), new Date(searchStart).getTime()),
+      );
+      const overlapEnd = new Date(
+        Math.min(new Date(bEnd).getTime(), new Date(searchEnd).getTime()),
+      );
+
+      const current = new Date(overlapStart);
+      while (current < overlapEnd) {
+        const dateStr = current.toISOString().split("T")[0];
+        dailyCounts[dateStr] = (dailyCounts[dateStr] || 0) + 1;
+
+        if (dailyCounts[dateStr] > maxConcurrency) {
+          maxConcurrency = dailyCounts[dateStr];
+        }
+        current.setDate(current.getDate() + 1);
+      }
+    });
+
+    if (maxConcurrency >= roomType.total_rooms) {
       return NextResponse.json(
         { error: "Room is fully booked" },
         { status: 400 },
       );
     }
 
-    // ✅ Insert with specific counts
     const { data, error } = await supabase
       .from("bookings")
       .insert({
-        guest_id: user.id, // Admin created
+        guest_id: user.id,
         room_type_id,
         check_in_date,
         check_out_date,
@@ -237,19 +332,12 @@ export async function POST(request: Request) {
 
     if (error) throw error;
 
-    // 🔔 Send email notification for new confirmed booking
-    console.log(
-      "New booking created with confirmed status, sending email notification...",
-    );
-
-    // Fetch user details for email
     const { data: userProfile } = await supabase
       .from("users")
       .select("full_name, email")
       .eq("id", user.id)
       .single();
 
-    // Send email asynchronously (don't block the response)
     sendBookingConfirmationEmailWithRetry({
       guestName: userProfile?.full_name || "Guest",
       guestEmail: userProfile?.email || user.email || "",
