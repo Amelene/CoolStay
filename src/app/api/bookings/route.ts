@@ -221,7 +221,7 @@ export async function POST(request: Request) {
 
     const calculatedTotal = baseTotalAmount - finalDiscountAmount;
 
-    // 4. Availability Check
+    // 4. Availability Check (Daily Concurrency Algorithm)
     const searchStart = check_in;
     const searchEnd =
       check_out === check_in
@@ -235,30 +235,54 @@ export async function POST(request: Request) {
       .select("check_in_date, check_out_date")
       .eq("room_type_id", room_type_id)
       .in("status", ["confirmed", "pending", "checked_in"])
-      .lte("check_in_date", searchEnd)
+      .lt("check_in_date", searchEnd)
       .gte("check_out_date", searchStart);
 
     if (fetchError) throw fetchError;
 
-    const overlapCount =
-      existingBookings?.filter((b) => {
-        const bStart = b.check_in_date;
-        const bEnd =
-          b.check_in_date === b.check_out_date
-            ? new Date(new Date(b.check_in_date).getTime() + 86400000)
-                .toISOString()
-                .split("T")[0]
-            : b.check_out_date;
-        return bStart < searchEnd && bEnd > searchStart;
-      }).length || 0;
+    // 🔒 THE ALGORITHM: Calculate max daily concurrency
+    let maxConcurrency = 0;
+    const dailyCounts: Record<string, number> = {};
 
-    if (overlapCount >= roomType.total_rooms) {
+    existingBookings?.forEach((b) => {
+      const bStart = b.check_in_date;
+      const bEnd =
+        b.check_in_date === b.check_out_date
+          ? new Date(new Date(b.check_in_date).getTime() + 86400000)
+              .toISOString()
+              .split("T")[0]
+          : b.check_out_date;
+
+      // Find the exact overlapping window for this specific booking
+      const overlapStart = new Date(
+        Math.max(new Date(bStart).getTime(), new Date(searchStart).getTime()),
+      );
+      const overlapEnd = new Date(
+        Math.min(new Date(bEnd).getTime(), new Date(searchEnd).getTime()),
+      );
+
+      // Drop them into the daily buckets
+      const current = new Date(overlapStart);
+      while (current < overlapEnd) {
+        const dateStr = current.toISOString().split("T")[0];
+        dailyCounts[dateStr] = (dailyCounts[dateStr] || 0) + 1;
+
+        if (dailyCounts[dateStr] > maxConcurrency) {
+          maxConcurrency = dailyCounts[dateStr];
+        }
+
+        current.setDate(current.getDate() + 1); // Move to next day
+      }
+    });
+
+    if (maxConcurrency >= roomType.total_rooms) {
       return NextResponse.json(
-        { error: `Fully booked! Only ${roomType.total_rooms} rooms exist.` },
+        {
+          error: `Fully booked! Maximum capacity reached on overlapping dates.`,
+        },
         { status: 409 },
       );
     }
-
     // 5. Create Booking
     const SECURITY_DEPOSIT = 1000.0;
 

@@ -38,10 +38,13 @@ interface RoomType {
   capacity: number;
   avg_rating?: number;
   review_count?: number;
+  available_count?: number; // 🔒 NEW: Tracks exactly how many are left
 }
 
-// 🔒 THE FIX: Create a strict type for the raw Supabase response to avoid 'any'
-interface RawRoomData extends Omit<RoomType, "avg_rating" | "review_count"> {
+interface RawRoomData extends Omit<
+  RoomType,
+  "avg_rating" | "review_count" | "available_count"
+> {
   reviews?: { rating: number }[];
 }
 
@@ -72,8 +75,6 @@ function AccommodationContent() {
 
   const calendarRef = useRef<HTMLDivElement>(null);
   const guestMenuRef = useRef<HTMLDivElement>(null);
-
-  // 🔒 THE FIX: Safeguard ref to prevent infinite loops when adding router to deps
   const hasInitialized = useRef(false);
 
   const [selectedRoom, setSelectedRoom] = useState<BookingData | null>(null);
@@ -94,7 +95,7 @@ function AccommodationContent() {
 
   useEffect(() => {
     if (hasInitialized.current) return;
-    hasInitialized.current = true; // Lock it immediately
+    hasInitialized.current = true;
 
     const init = async () => {
       setLoading(true);
@@ -138,7 +139,7 @@ function AccommodationContent() {
       }
     };
     init();
-  }, [router, searchParams]); // 🔒 THE FIX: Linter is happy, logic is safe.
+  }, [router, searchParams]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -167,7 +168,6 @@ function AccommodationContent() {
     if (error) {
       toast.error("Failed to load rooms");
     } else {
-      // 🔒 THE FIX: Strict typing for the mapped data
       const roomsWithData = ((data as RawRoomData[]) || []).map((room) => {
         const ratings = room.reviews?.map((r) => r.rating) || [];
         const count = ratings.length;
@@ -175,7 +175,13 @@ function AccommodationContent() {
           count > 0
             ? ratings.reduce((a: number, b: number) => a + b, 0) / count
             : 0;
-        return { ...room, avg_rating: avg, review_count: count };
+        // 🔒 Default: On initial load, all physical rooms are 'available' for display
+        return {
+          ...room,
+          avg_rating: avg,
+          review_count: count,
+          available_count: room.total_rooms,
+        };
       });
       setRooms(roomsWithData);
     }
@@ -321,32 +327,69 @@ function AccommodationContent() {
         .select("room_type_id, check_in_date, check_out_date")
         .neq("status", "cancelled")
         .lt("check_in_date", searchEnd)
-        .gt("check_out_date", searchStart);
+        .gte("check_out_date", searchStart);
       if (bookingsError) throw bookingsError;
 
-      const bookingCounts: Record<string, number> = {};
+      const concurrencyMap: Record<string, Record<string, number>> = {};
+
       busyBookings?.forEach((booking) => {
-        bookingCounts[booking.room_type_id] =
-          (bookingCounts[booking.room_type_id] || 0) + 1;
+        const roomId = booking.room_type_id;
+        if (!concurrencyMap[roomId]) concurrencyMap[roomId] = {};
+
+        const bStart = booking.check_in_date;
+        const bEnd =
+          booking.check_in_date === booking.check_out_date
+            ? new Date(new Date(booking.check_in_date).getTime() + 86400000)
+                .toISOString()
+                .split("T")[0]
+            : booking.check_out_date;
+
+        const overlapStart = new Date(
+          Math.max(new Date(bStart).getTime(), new Date(searchStart).getTime()),
+        );
+        const overlapEnd = new Date(
+          Math.min(new Date(bEnd).getTime(), new Date(searchEnd).getTime()),
+        );
+
+        const current = new Date(overlapStart);
+        while (current < overlapEnd) {
+          const dateStr = current.toISOString().split("T")[0];
+          concurrencyMap[roomId][dateStr] =
+            (concurrencyMap[roomId][dateStr] || 0) + 1;
+          current.setDate(current.getDate() + 1);
+        }
       });
 
-      // 🔒 THE FIX: Strict typing for the filter/map
+      // 🔒 THE MATH: Map and filter rooms based on remaining capacity
       const availableRooms = (allRooms as RawRoomData[])
-        .filter((room) => {
-          const bookedCount = bookingCounts[room.id] || 0;
-          return room.total_rooms > bookedCount;
-        })
         .map((room) => {
+          const roomCounts = concurrencyMap[room.id] || {};
+          let peakBooked = 0;
+
+          for (const count of Object.values(roomCounts)) {
+            if (count > peakBooked) peakBooked = count as number;
+          }
+
+          // Calculate exactly how many are left
+          const availableCount = room.total_rooms - peakBooked;
+
           const ratings = room.reviews?.map((r) => r.rating) || [];
           const count = ratings.length;
           const avg =
             count > 0
               ? ratings.reduce((a: number, b: number) => a + b, 0) / count
               : 0;
-          return { ...room, avg_rating: avg, review_count: count };
-        });
 
-      setRooms(availableRooms);
+          return {
+            ...room,
+            avg_rating: avg,
+            review_count: count,
+            available_count: availableCount,
+          };
+        })
+        .filter((room) => room.available_count && room.available_count > 0); // Drop any room with 0 availability
+
+      setRooms(availableRooms as RoomType[]);
       if (availableRooms.length === 0)
         toast.info("No rooms available for this group size/date.");
       else toast.success(`Found ${availableRooms.length} available rooms!`);
@@ -777,6 +820,7 @@ function AccommodationContent() {
                     priceDay={room.price_day}
                     priceNight={room.price_night}
                     priceOvernight={room.price_overnight}
+                    availableCount={room.available_count} // 🔒 NEW: Passed down to the Card
                     onBook={(roomData) => {
                       if (!currentUser) {
                         router.push(
