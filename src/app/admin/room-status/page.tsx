@@ -9,10 +9,16 @@ import {
   Sparkles,
   Wrench,
   RefreshCw,
-  X,
+  Building,
+  CheckCircle2,
+  Ban,
+  Search,
+  Filter,
+  ChevronDown,
+  Info,
+  Lock,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/Button"; // Make sure you have this, or use standard <button>
 
 interface RoomInventory {
   id: string;
@@ -24,18 +30,17 @@ interface RoomInventory {
     | "cleaning"
     | "maintenance"
     | "out_of_order";
+  categoryName?: string;
 }
 
 export default function RoomStatusDashboard() {
   const [loading, setLoading] = useState(true);
-  const [groupedRooms, setGroupedRooms] = useState<
-    Record<string, RoomInventory[]>
-  >({});
+  const [allRooms, setAllRooms] = useState<RoomInventory[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
 
-  // 🔒 NEW: Safety Modal State
-  const [selectedRoom, setSelectedRoom] = useState<RoomInventory | null>(null);
-  const [newStatus, setNewStatus] = useState<string>("");
-  const [isUpdating, setIsUpdating] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
 
   const fetchStatus = async () => {
     setLoading(true);
@@ -55,14 +60,20 @@ export default function RoomStatusDashboard() {
       const typeMap: Record<string, string> = {};
       typesData.forEach((t) => (typeMap[t.id] = t.name));
 
-      const grouped: Record<string, RoomInventory[]> = {};
-      roomsData.forEach((room) => {
-        const catName = typeMap[room.room_type_id] || "Uncategorized";
-        if (!grouped[catName]) grouped[catName] = [];
-        grouped[catName].push(room);
+      const mappedRooms: RoomInventory[] = roomsData.map((room) => {
+        let catName = typeMap[room.room_type_id] || "Standard";
+        if (catName.toLowerCase() === "uncategorized") {
+          catName = "Standard";
+        }
+        return { ...room, categoryName: catName };
       });
 
-      setGroupedRooms(grouped);
+      setAllRooms(mappedRooms);
+
+      const uniqueCategories = Array.from(
+        new Set(mappedRooms.map((r) => r.categoryName || "Standard")),
+      );
+      setCategories(["All", ...uniqueCategories]);
     } catch {
       toast.error("Failed to fetch room status");
     } finally {
@@ -74,43 +85,38 @@ export default function RoomStatusDashboard() {
     fetchStatus();
   }, []);
 
-  // 🔒 NEW: Opens the safety modal
-  const handleRoomClick = (room: RoomInventory) => {
-    if (room.status === "occupied") {
+  const handleInlineStatusUpdate = async (
+    roomId: string,
+    currentStatus: string,
+    newStatus: RoomInventory["status"],
+  ) => {
+    if (currentStatus === "occupied") {
       toast.error(
         "Occupied rooms must be cleared via the Check-Out flow in Reservations.",
       );
       return;
     }
-    setSelectedRoom(room);
-    setNewStatus(room.status); // Default to current status
-  };
+    if (currentStatus === newStatus) return;
 
-  // 🔒 NEW: Executes the confirmed change
-  const confirmStatusChange = async () => {
-    if (!selectedRoom || newStatus === selectedRoom.status) {
-      setSelectedRoom(null);
-      return;
-    }
-
-    setIsUpdating(true);
-    const supabase = createClient();
+    const previousRooms = [...allRooms];
+    setAllRooms(
+      allRooms.map((room) =>
+        room.id === roomId ? { ...room, status: newStatus } : room,
+      ),
+    );
 
     try {
+      const supabase = createClient();
       const { error } = await supabase
         .from("room_inventory")
         .update({ status: newStatus })
-        .eq("id", selectedRoom.id);
+        .eq("id", roomId);
 
       if (error) throw error;
-
       toast.success(`Room updated to ${newStatus.replace("_", " ")}`);
-      await fetchStatus();
-      setSelectedRoom(null);
     } catch {
+      setAllRooms(previousRooms);
       toast.error("Failed to update status");
-    } finally {
-      setIsUpdating(false);
     }
   };
 
@@ -155,61 +161,202 @@ export default function RoomStatusDashboard() {
     }
   };
 
+  const totalRooms = allRooms.length;
+  const availableRooms = allRooms.filter(
+    (r) => r.status === "available",
+  ).length;
+  const occupiedRooms = allRooms.filter((r) => r.status === "occupied").length;
+  const cleaningRooms = allRooms.filter((r) => r.status === "cleaning").length;
+  const maintenanceRooms = allRooms.filter(
+    (r) => r.status === "maintenance" || r.status === "out_of_order",
+  ).length;
+
+  const filteredRooms = allRooms.filter((room) => {
+    const matchesSearch =
+      room.room_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      room.status
+        .replace(/_/g, " ")
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
+
+    const matchesCategory =
+      selectedCategory === "All" || room.categoryName === selectedCategory;
+
+    return matchesSearch && matchesCategory;
+  });
+
+  const groupedRooms = filteredRooms.reduce(
+    (acc, room) => {
+      const catName = room.categoryName || "Standard";
+      if (!acc[catName]) acc[catName] = [];
+      acc[catName].push(room);
+      return acc;
+    },
+    {} as Record<string, RoomInventory[]>,
+  );
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12 relative">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-        <div>
-          <h1 className="text-2xl font-bold text-[#0A1A44] font-serif">
-            Housekeeping & Room Status
+    <div className="space-y-4 max-w-7xl mx-auto pb-12 relative">
+      {/* 🔒 THE COMMAND BAR: Header, Tooltip, Search, Filter, and Refresh all in one sleek row */}
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-bold text-[#0A1A44] font-serif">
+            Room Status
           </h1>
-          <p className="text-slate-500 text-sm mt-1">
-            Live overview of physical room conditions.
-          </p>
+          {/* Subtle Hover Tooltip replacing the giant banner */}
+          <div className="relative group flex items-center cursor-help">
+            <Info className="w-4 h-4 text-slate-400 hover:text-blue-500 transition-colors" />
+            <div className="absolute left-full ml-2 w-64 p-2.5 bg-slate-800 text-white text-[10px] leading-relaxed rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-xl">
+              <strong>Occupied</strong> rooms cannot be manually updated here.
+              They will automatically reset when you process a Guest Check-Out
+              in Reservations.
+            </div>
+          </div>
         </div>
-        <button
-          onClick={fetchStatus}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />{" "}
-          Refresh
-        </button>
+
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full xl:w-auto">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search rooms..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#0A1A44] outline-none transition-all"
+            />
+          </div>
+          <div className="relative w-full sm:w-48">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#0A1A44] outline-none font-medium text-slate-700 appearance-none transition-all cursor-pointer"
+            >
+              {categories.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat === "All" ? "All Categories" : cat}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={fetchStatus}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
       </div>
+
+      {/* 🔒 COMPACT KPI DASHBOARD: Tighter padding, smaller icons, sleeker layout */}
+      {!loading && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex items-center gap-3">
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+              <Building className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                Total
+              </p>
+              <p className="text-lg font-black text-slate-800 leading-none">
+                {totalRooms}
+              </p>
+            </div>
+          </div>
+          <div className="bg-white p-3 rounded-xl shadow-sm border border-green-100 flex items-center gap-3">
+            <div className="p-2 bg-green-50 text-green-600 rounded-lg">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                Available
+              </p>
+              <p className="text-lg font-black text-green-600 leading-none">
+                {availableRooms}
+              </p>
+            </div>
+          </div>
+          <div className="bg-white p-3 rounded-xl shadow-sm border border-red-100 flex items-center gap-3">
+            <div className="p-2 bg-red-50 text-red-600 rounded-lg">
+              <Ban className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                Occupied
+              </p>
+              <p className="text-lg font-black text-red-600 leading-none">
+                {occupiedRooms}
+              </p>
+            </div>
+          </div>
+          <div className="bg-white p-3 rounded-xl shadow-sm border border-blue-100 flex items-center gap-3">
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                Cleaning
+              </p>
+              <p className="text-lg font-black text-blue-600 leading-none">
+                {cleaningRooms}
+              </p>
+            </div>
+          </div>
+          <div className="bg-white p-3 rounded-xl shadow-sm border border-orange-100 flex items-center gap-3">
+            <div className="p-2 bg-orange-50 text-orange-600 rounded-lg">
+              <Wrench className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                Maint.
+              </p>
+              <p className="text-lg font-black text-orange-600 leading-none">
+                {maintenanceRooms}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Grid */}
       {loading ? (
         <div className="text-center py-20 text-slate-400 flex flex-col items-center">
-          <Loader2 className="w-8 h-8 animate-spin text-[#0A1A44] mb-4" />{" "}
-          Loading movie seats...
+          <Loader2 className="w-8 h-8 animate-spin text-[#0A1A44] mb-4" />
+          Loading facility data...
+        </div>
+      ) : Object.keys(groupedRooms).length === 0 ? (
+        <div className="text-center py-20 bg-white rounded-2xl border border-slate-100 shadow-sm text-slate-500">
+          No rooms match your filter criteria.
         </div>
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-6">
           {Object.entries(groupedRooms).map(([categoryName, rooms]) => (
             <div
               key={categoryName}
-              className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100"
+              className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100"
             >
-              <h2 className="text-lg font-bold text-[#0A1A44] mb-4 border-b border-slate-100 pb-2">
+              <h2 className="text-base font-bold text-[#0A1A44] mb-4 border-b border-slate-100 pb-2">
                 {categoryName}
               </h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                 {rooms.map((room) => {
                   const config = getStatusConfig(room.status);
                   const Icon = config.icon;
 
                   return (
-                    <button
+                    <div
                       key={room.id}
-                      onClick={() => handleRoomClick(room)}
-                      className={`relative p-4 rounded-xl border-2 flex flex-col items-center gap-3 transition-all ${config.color} hover:shadow-md hover:scale-105 active:scale-95`}
+                      className={`relative p-3 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${config.color} hover:shadow-md group`}
                     >
                       <div className="absolute top-2 right-2 flex space-x-1">
                         <span
-                          className={`w-2.5 h-2.5 rounded-full shadow-sm border border-white ${config.dot}`}
+                          className={`w-2 h-2 rounded-full shadow-sm border border-white ${config.dot}`}
                         ></span>
                       </div>
-                      <Icon className="w-7 h-7 opacity-80" />
-                      <div className="text-center">
+                      <Icon className="w-6 h-6 opacity-80 mt-1" />
+                      <div className="text-center w-full">
                         <span className="block text-xs font-black tracking-wide">
                           {room.room_number}
                         </span>
@@ -217,75 +364,79 @@ export default function RoomStatusDashboard() {
                           {config.label}
                         </span>
                       </div>
-                    </button>
+
+                      <div className="w-full mt-1 relative">
+                        {room.status === "occupied" ? (
+                          <button
+                            onClick={() =>
+                              toast.error(
+                                "Please process check-outs in the Manage Bookings page.",
+                              )
+                            }
+                            className="w-full flex items-center justify-center gap-1 text-[9px] font-bold uppercase tracking-wider py-1.5 rounded-md bg-slate-100/50 text-slate-400 cursor-not-allowed border border-slate-200/50"
+                          >
+                            <Lock className="w-2.5 h-2.5" /> Occupied
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() =>
+                                setOpenDropdownId(
+                                  openDropdownId === room.id ? null : room.id,
+                                )
+                              }
+                              className="w-full flex items-center justify-between text-[9px] font-bold uppercase tracking-wider py-1.5 px-2 rounded-md bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-slate-700 transition-colors shadow-sm"
+                            >
+                              Change Status{" "}
+                              <ChevronDown
+                                className={`w-3 h-3 transition-transform ${openDropdownId === room.id ? "rotate-180" : ""}`}
+                              />
+                            </button>
+
+                            {openDropdownId === room.id && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-10"
+                                  onClick={() => setOpenDropdownId(null)}
+                                />
+                                <div className="absolute top-full left-0 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-xl z-20 overflow-hidden py-1 animate-in zoom-in-95">
+                                  {[
+                                    "available",
+                                    "cleaning",
+                                    "maintenance",
+                                    "out_of_order",
+                                  ].map((s) => (
+                                    <button
+                                      key={s}
+                                      onClick={() => {
+                                        handleInlineStatusUpdate(
+                                          room.id,
+                                          room.status,
+                                          s as RoomInventory["status"],
+                                        );
+                                        setOpenDropdownId(null);
+                                      }}
+                                      className={`w-full text-left px-2 py-1.5 text-[9px] font-bold uppercase tracking-wider hover:bg-slate-50 transition-colors ${
+                                        room.status === s
+                                          ? "text-blue-600 bg-blue-50"
+                                          : "text-slate-600"
+                                      }`}
+                                    >
+                                      {s.replace(/_/g, " ")}
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
                   );
                 })}
               </div>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* 🔒 NEW: THE SAFETY MODAL */}
-      {selectedRoom && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95">
-            <div className="bg-[#0A1A44] p-4 text-white flex justify-between items-center">
-              <h2 className="font-bold">Update Room Status</h2>
-              <button
-                onClick={() => setSelectedRoom(null)}
-                className="hover:bg-white/10 p-1 rounded-full"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <p className="text-sm text-slate-600">
-                You are updating{" "}
-                <strong className="text-slate-800">
-                  {selectedRoom.room_number}
-                </strong>
-                . Select the new physical status for this room.
-              </p>
-
-              <select
-                value={newStatus}
-                onChange={(e) => setNewStatus(e.target.value)}
-                className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 ring-[#0A1A44]"
-              >
-                <option value="available">
-                  🟢 Available (Ready for Guests)
-                </option>
-                <option value="cleaning">🔵 Cleaning (Housekeeping)</option>
-                <option value="maintenance">
-                  🟠 Maintenance (Needs Repair)
-                </option>
-                <option value="out_of_order">
-                  🔴 Out of Order (Do Not Use)
-                </option>
-              </select>
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  onClick={() => setSelectedRoom(null)}
-                  className="flex-1 py-3 text-sm font-bold text-slate-500 border border-slate-200 rounded-xl hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <Button
-                  onClick={confirmStatusChange}
-                  disabled={isUpdating || newStatus === selectedRoom.status}
-                  className="flex-1 py-3 text-sm bg-[#0A1A44] text-white rounded-xl shadow-md"
-                >
-                  {isUpdating ? (
-                    <Loader2 className="w-4 h-4 animate-spin mx-auto" />
-                  ) : (
-                    "Confirm Status"
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
         </div>
       )}
     </div>
