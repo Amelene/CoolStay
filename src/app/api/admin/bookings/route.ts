@@ -10,7 +10,6 @@ export async function GET() {
     const { error: authError } = await authorizeAdmin(supabase);
     if (authError) return authError;
 
-    // Fetch everything first, without aggressive Supabase filters
     const { data, error } = await supabase
       .from("bookings")
       .select(
@@ -116,20 +115,12 @@ export async function PATCH(request: Request) {
         .eq("id", targetRoom);
     }
 
-    if (status === "checked_out") {
-      if (booking.assigned_room_id) {
-        await supabase
-          .from("room_inventory")
-          .update({ status: "cleaning" })
-          .eq("id", booking.assigned_room_id);
-      }
-    }
-
     interface UpdatePayload {
       status?: string;
       security_deposit_status?: string;
       security_deposit_notes?: string | null;
       assigned_room_id?: string;
+      check_out_date?: string; // 🔒 NEW: Added to allow early checkout overrides
     }
 
     const updatePayload: UpdatePayload = {};
@@ -139,6 +130,28 @@ export async function PATCH(request: Request) {
     if (security_deposit_notes !== undefined)
       updatePayload.security_deposit_notes = security_deposit_notes;
     if (assigned_room_id) updatePayload.assigned_room_id = assigned_room_id;
+
+    // 🔒 NEW: Early Checkout & Auto-Cleaning Logic
+    if (status === "checked_out") {
+      if (booking.assigned_room_id) {
+        // Automatically lock the room so staff know it needs cleaning
+        await supabase
+          .from("room_inventory")
+          .update({ status: "cleaning" })
+          .eq("id", booking.assigned_room_id);
+      }
+
+      // Force the server to calculate exact PHT time
+      const nowPHT = new Date(
+        new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }),
+      );
+      const todayPHTStr = `${nowPHT.getFullYear()}-${String(nowPHT.getMonth() + 1).padStart(2, "0")}-${String(nowPHT.getDate()).padStart(2, "0")}`;
+
+      // If they checkout before their scheduled checkout date, shrink the booking window!
+      if (todayPHTStr < booking.check_out_date) {
+        updatePayload.check_out_date = todayPHTStr;
+      }
+    }
 
     const { data, error } = await supabase
       .from("bookings")
@@ -181,7 +194,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-// POST: Create Booking
+// POST: Create Booking (Walk-Ins)
 export async function POST(request: Request) {
   try {
     const supabase = await createClient();
@@ -217,7 +230,6 @@ export async function POST(request: Request) {
 
     if (!roomType) throw new Error("Room type not found.");
 
-    // 🔒 FIX 2: PHT TIMEZONE & BUSINESS CUTOFF VALIDATION
     const nowPHT = new Date(
       new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }),
     );
@@ -254,7 +266,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // 🔒 MISSED FIX: Daily Concurrency Algorithm
     const searchStart = check_in_date;
     const searchEnd =
       check_out_date === check_in_date
