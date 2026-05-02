@@ -30,6 +30,14 @@ type Room = {
   status: string;
 };
 
+// Calculate PHT immediately so we can use it as the default state
+const getPHTDate = () => {
+  const now = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }),
+  );
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+};
+
 export default function AddTaskModal({
   isOpen,
   onClose,
@@ -45,50 +53,110 @@ export default function AddTaskModal({
     {},
   );
   const [isFetchingShifts, setIsFetchingShifts] = useState(false);
+  const [activeTasksCount, setActiveTasksCount] = useState<
+    Record<string, number>
+  >({});
 
   const [taskCategory, setTaskCategory] = useState("general");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [staffId, setStaffId] = useState("");
-  const [priority, setPriority] = useState("medium");
-  const [dueDate, setDueDate] = useState("");
+
+  // 🔒 FIX 1: Auto-fill to Today (PHT). It will NEVER be empty now.
+  const [dueDate, setDueDate] = useState(getPHTDate());
 
   useEffect(() => {
     if (isOpen) {
+      // Reset form state when opened
+      setTitle("");
+      setDescription("");
+      setStaffId("");
+      setRoomId("");
+      setTaskCategory("general");
+      setDueDate(getPHTDate());
+
       fetch("/api/admin/staff")
         .then((res) => res.json())
         .then((data: StaffMember[]) => {
-          setStaffList(data.filter((s) => s.status === "active") || []);
+          const nonAdmins = data.filter(
+            (s) =>
+              s.status === "active" &&
+              !s.position.toLowerCase().includes("admin") &&
+              !s.position.toLowerCase().includes("manager"),
+          );
+          setStaffList(nonAdmins || []);
         })
         .catch((err) => console.error("Failed to load staff", err));
 
-      const fetchRooms = async () => {
+      const fetchRoomsAndWorkloads = async () => {
         const supabase = createClient();
-        const { data } = await supabase
+
+        const { data: roomData } = await supabase
           .from("room_inventory")
           .select("id, room_number, status")
           .order("room_number");
-        if (data) setRooms(data);
+        if (roomData) setRooms(roomData);
+
+        const { data: tasksData } = await supabase
+          .from("staff_tasks")
+          .select("staff_id, status")
+          .in("status", ["pending", "in_progress"]);
+
+        if (tasksData) {
+          const counts: Record<string, number> = {};
+          tasksData.forEach((task) => {
+            counts[task.staff_id] = (counts[task.staff_id] || 0) + 1;
+          });
+          setActiveTasksCount(counts);
+        }
       };
-      fetchRooms();
+
+      fetchRoomsAndWorkloads();
     }
   }, [isOpen]);
 
   useEffect(() => {
-    if (!dueDate) {
-      setShiftsForDate({});
-      return;
-    }
+    if (!dueDate) return;
 
     setIsFetchingShifts(true);
     fetch(`/api/admin/shifts?start=${dueDate}&end=${dueDate}`)
       .then((res) => res.json())
       .then((data: ShiftData[]) => {
         const shiftMap: Record<string, string> = {};
+
+        const nowPHT = new Date(
+          new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }),
+        );
+        const currentHourPHT = nowPHT.getHours();
+        const todayPHTStr = getPHTDate();
+
+        let activeShiftBlock = "night";
+        if (currentHourPHT >= 6 && currentHourPHT < 14)
+          activeShiftBlock = "day";
+        else if (currentHourPHT >= 14 && currentHourPHT < 22)
+          activeShiftBlock = "mid";
+
+        const isToday = dueDate === todayPHTStr;
+
         if (Array.isArray(data)) {
           data.forEach((shift) => {
             if (shift.shift_type !== "off") {
-              shiftMap[String(shift.staff_id)] = shift.shift_type;
+              const sType = shift.shift_type.toLowerCase();
+              let normalizedShift = "day";
+              if (sType.includes("mid") || sType.includes("afternoon"))
+                normalizedShift = "mid";
+              if (sType.includes("night") || sType.includes("grave"))
+                normalizedShift = "night";
+
+              if (isToday) {
+                // If it's today, ONLY show them if they are working RIGHT NOW
+                if (normalizedShift === activeShiftBlock) {
+                  shiftMap[String(shift.staff_id)] = shift.shift_type;
+                }
+              } else {
+                // Future dates show scheduled staff
+                shiftMap[String(shift.staff_id)] = shift.shift_type;
+              }
             }
           });
         }
@@ -131,7 +199,7 @@ export default function AddTaskModal({
           title,
           description,
           staff_id: staffId,
-          priority,
+          priority: "medium",
           due_date: dueDate || null,
           room_id: roomId || null,
         }),
@@ -140,15 +208,6 @@ export default function AddTaskModal({
       if (!res.ok) throw new Error("Failed to assign task");
 
       toast.success("Task assigned successfully!", { id: toastId });
-
-      setTitle("");
-      setDescription("");
-      setStaffId("");
-      setPriority("medium");
-      setDueDate("");
-      setRoomId("");
-      setTaskCategory("general");
-
       onSuccess();
       onClose();
     } catch (error: unknown) {
@@ -161,7 +220,6 @@ export default function AddTaskModal({
   };
 
   const scheduledStaff = staffList.filter((s) => shiftsForDate[s.id]);
-  const unscheduledStaff = staffList.filter((s) => !shiftsForDate[s.id]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -180,7 +238,6 @@ export default function AddTaskModal({
     }
   };
 
-  // Helper to make text look pretty (e.g., "out_of_order" -> "Out of order")
   const formatStatusText = (status: string) => {
     return status.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
   };
@@ -230,7 +287,6 @@ export default function AddTaskModal({
                 {rooms.map((room) => {
                   const isOccupied = room.status === "occupied";
                   return (
-                    // 🔒 NEW: Disables the option if Occupied!
                     <option key={room.id} value={room.id} disabled={isOccupied}>
                       {room.room_number} — {formatStatusText(room.status)}{" "}
                       {getStatusIcon(room.status)}
@@ -238,8 +294,6 @@ export default function AddTaskModal({
                   );
                 })}
               </select>
-
-              {/* 🔒 NEW: The Room Legend */}
               <div className="mt-1.5 flex gap-2.5 text-[9px] font-bold text-slate-500 uppercase tracking-wide">
                 <span>🟢 Avail</span>
                 <span>🔴 Occ</span>
@@ -262,32 +316,17 @@ export default function AddTaskModal({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                Due Date
-              </label>
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                Priority
-              </label>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-            </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+              Due Date
+            </label>
+            <input
+              type="date"
+              min={getPHTDate()}
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
           </div>
 
           <div>
@@ -311,29 +350,28 @@ export default function AddTaskModal({
                 Select a staff member...
               </option>
 
-              {dueDate && scheduledStaff.length > 0 && (
-                <optgroup label="🟢 ON DUTY THIS DAY">
-                  {scheduledStaff.map((staff) => (
-                    <option key={staff.id} value={staff.id}>
-                      {staff.first_name} {staff.last_name} (
-                      {shiftsForDate[staff.id].toUpperCase()})
-                    </option>
-                  ))}
+              {/* 🔒 FIX 2: Completely deleted the "All Active Staff" bypass. Strict enforcement only. */}
+              {scheduledStaff.length > 0 ? (
+                <optgroup
+                  label={`🟢 ON DUTY ${dueDate === getPHTDate() ? "RIGHT NOW" : "THIS DAY"}`}
+                >
+                  {scheduledStaff.map((staff) => {
+                    const count = activeTasksCount[staff.id] || 0;
+                    const indicator = count > 0 ? "🔴" : "🟢";
+                    return (
+                      <option key={staff.id} value={staff.id}>
+                        {indicator} {staff.first_name} {staff.last_name} (
+                        {shiftsForDate[staff.id].toUpperCase()}) — {count}{" "}
+                        Active Task{count !== 1 ? "s" : ""}
+                      </option>
+                    );
+                  })}
                 </optgroup>
+              ) : (
+                <option value="" disabled>
+                  No staff actively on shift at this time.
+                </option>
               )}
-
-              <optgroup
-                label={
-                  dueDate ? "🔴 OFF DUTY / UNSCHEDULED" : "All Active Staff"
-                }
-              >
-                {unscheduledStaff.map((staff) => (
-                  // 🔒 NEW: Disables Off Duty staff if a due date is selected!
-                  <option key={staff.id} value={staff.id} disabled={!!dueDate}>
-                    {staff.first_name} {staff.last_name} ({staff.position})
-                  </option>
-                ))}
-              </optgroup>
             </select>
           </div>
 
