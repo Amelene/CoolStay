@@ -409,9 +409,11 @@ function LogisticsCard({
       </div>
 
       {count > 0 && (
-        <button className="w-full mt-4 text-xs font-bold text-slate-500 hover:text-[#0A1A44] flex items-center justify-center gap-1 transition-colors">
-          View All <ArrowRight className="w-3 h-3" />
-        </button>
+        <Link href="/admin/bookings" className="block mt-6">
+          <button className="w-full py-3 rounded-2xl text-[10px] font-black text-slate-500 uppercase tracking-widest border border-slate-100 hover:bg-[#0A1A44] hover:text-white hover:border-[#0A1A44] transition-all flex items-center justify-center gap-2">
+            View All Bookings <ArrowRight className="w-3 h-3" />
+          </button>
+        </Link>
       )}
     </div>
   );
