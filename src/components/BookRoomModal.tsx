@@ -139,6 +139,39 @@ export default function BookRoomModal({
       );
   };
 
+  // 🔒 NEW: Smart Input Typing Handlers
+  const handleTypeGuest = (
+    valStr: string,
+    setter: React.Dispatch<React.SetStateAction<number>>,
+    currentVal: number,
+  ) => {
+    if (valStr === "") {
+      setter(0); // Allow temporary empty state for clean backspacing
+      return;
+    }
+    const val = parseInt(valStr, 10);
+    if (isNaN(val) || val < 0) return;
+
+    const otherGuests = currentTotalGuests - currentVal;
+    if (otherGuests + val > maxCapacity) {
+      toast.error(
+        `Maximum capacity of ${maxCapacity} guests reached for ${room.name}.`,
+      );
+      setter(maxCapacity - otherGuests);
+    } else {
+      setter(val);
+    }
+  };
+
+  const handleTypeInfant = (valStr: string) => {
+    if (valStr === "") {
+      setInfants(0);
+      return;
+    }
+    const val = parseInt(valStr, 10);
+    if (!isNaN(val) && val >= 0) setInfants(val);
+  };
+
   let baseTotalPrice = 0;
   let finalTotalPrice = 0;
 
@@ -565,20 +598,27 @@ export default function BookRoomModal({
                       <button
                         type="button"
                         onClick={() => setAdults(Math.max(1, adults - 1))}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
                       <input
                         type="number"
-                        readOnly
-                        value={adults}
-                        className="w-8 text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent cursor-default"
+                        value={adults === 0 ? "" : adults}
+                        onChange={(e) =>
+                          handleTypeGuest(e.target.value, setAdults, adults)
+                        }
+                        onBlur={() => {
+                          if (adults < 1) setAdults(1);
+                        }}
+                        placeholder="1"
+                        className="text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent min-w-[2rem]"
+                        style={{ width: `${String(adults).length + 1}ch` }}
                       />
                       <button
                         type="button"
                         onClick={() => handleAddGuest(setAdults, adults)}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -597,20 +637,24 @@ export default function BookRoomModal({
                       <button
                         type="button"
                         onClick={() => setChildren(Math.max(0, children - 1))}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
                       <input
                         type="number"
-                        readOnly
-                        value={children}
-                        className="w-8 text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent cursor-default"
+                        value={children === 0 ? "" : children}
+                        onChange={(e) =>
+                          handleTypeGuest(e.target.value, setChildren, children)
+                        }
+                        placeholder="0"
+                        className="text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent min-w-[2rem]"
+                        style={{ width: `${String(children).length + 1}ch` }}
                       />
                       <button
                         type="button"
                         onClick={() => handleAddGuest(setChildren, children)}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -629,20 +673,22 @@ export default function BookRoomModal({
                       <button
                         type="button"
                         onClick={() => setInfants(Math.max(0, infants - 1))}
-                        className="w-6 h-6 bg-white hover:bg-blue-100 rounded-full flex items-center justify-center text-blue-600 transition-colors shadow-sm"
+                        className="w-6 h-6 bg-white hover:bg-blue-100 rounded-full flex items-center justify-center text-blue-600 transition-colors shadow-sm shrink-0"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
                       <input
                         type="number"
-                        readOnly
-                        value={infants}
-                        className="w-8 text-center outline-none font-bold text-blue-800 no-spinner bg-transparent cursor-default"
+                        value={infants === 0 ? "" : infants}
+                        onChange={(e) => handleTypeInfant(e.target.value)}
+                        placeholder="0"
+                        className="text-center outline-none font-bold text-blue-800 no-spinner bg-transparent min-w-[2rem]"
+                        style={{ width: `${String(infants).length + 1}ch` }}
                       />
                       <button
                         type="button"
                         onClick={() => setInfants(infants + 1)}
-                        className="w-6 h-6 bg-white hover:bg-blue-100 rounded-full flex items-center justify-center text-blue-600 transition-colors shadow-sm"
+                        className="w-6 h-6 bg-white hover:bg-blue-100 rounded-full flex items-center justify-center text-blue-600 transition-colors shadow-sm shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -661,20 +707,24 @@ export default function BookRoomModal({
                       <button
                         type="button"
                         onClick={() => setSeniors(Math.max(0, seniors - 1))}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
                       <input
                         type="number"
-                        readOnly
-                        value={seniors}
-                        className="w-8 text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent cursor-default"
+                        value={seniors === 0 ? "" : seniors}
+                        onChange={(e) =>
+                          handleTypeGuest(e.target.value, setSeniors, seniors)
+                        }
+                        placeholder="0"
+                        className="text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent min-w-[2rem]"
+                        style={{ width: `${String(seniors).length + 1}ch` }}
                       />
                       <button
                         type="button"
                         onClick={() => handleAddGuest(setSeniors, seniors)}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -693,20 +743,24 @@ export default function BookRoomModal({
                       <button
                         type="button"
                         onClick={() => setPwds(Math.max(0, pwds - 1))}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
                       <input
                         type="number"
-                        readOnly
-                        value={pwds}
-                        className="w-8 text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent cursor-default"
+                        value={pwds === 0 ? "" : pwds}
+                        onChange={(e) =>
+                          handleTypeGuest(e.target.value, setPwds, pwds)
+                        }
+                        placeholder="0"
+                        className="text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent min-w-[2rem]"
+                        style={{ width: `${String(pwds).length + 1}ch` }}
                       />
                       <button
                         type="button"
                         onClick={() => handleAddGuest(setPwds, pwds)}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -717,7 +771,6 @@ export default function BookRoomModal({
                   </div>
                 </div>
 
-                {/* 🔒 THE FIX: The Strict "Declare Now, Verify Later" Warning Box */}
                 {(seniors > 0 || pwds > 0) && (
                   <div
                     className={`p-4 rounded-xl border transition-all ${activeDiscountType === "promo" ? "bg-slate-50 border-slate-200" : "bg-red-50 border-red-200"}`}
