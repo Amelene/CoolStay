@@ -247,7 +247,6 @@ export default function InventoryPage() {
           </div>
         </div>
       </div>
-      min-h-125
       {/* Navigation Tabs */}
       <div className="flex gap-1 mb-6 bg-white p-1 rounded-2xl border border-slate-200 w-fit shadow-sm">
         <button

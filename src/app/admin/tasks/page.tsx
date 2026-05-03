@@ -12,7 +12,6 @@ import {
 import AddTaskModal from "@/components/admin/tasks/AddTaskModal";
 import { toast } from "sonner";
 
-// 🔒 NEW: Updated Task Type to include the room
 type Task = {
   id: string;
   title: string;
@@ -83,11 +82,7 @@ export default function TaskBoardPage() {
     completed: tasks.filter((t) => t.status === "completed"),
   };
 
-  const priorityColors = {
-    low: "bg-slate-100 text-slate-600",
-    medium: "bg-blue-100 text-blue-700",
-    high: "bg-red-100 text-red-700",
-  };
+  // 🔒 Priority colors removed here!
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-[#F0F8FF] p-8 -m-6 font-sans text-slate-800">
@@ -129,7 +124,6 @@ export default function TaskBoardPage() {
                   task={task}
                   onMove={() => updateTaskStatus(task.id, "in_progress")}
                   actionLabel="Start Task"
-                  priorityColors={priorityColors}
                 />
               ))}
             </div>
@@ -150,7 +144,6 @@ export default function TaskBoardPage() {
                   task={task}
                   onMove={() => updateTaskStatus(task.id, "completed")}
                   actionLabel="Mark Done"
-                  priorityColors={priorityColors}
                 />
               ))}
             </div>
@@ -171,7 +164,6 @@ export default function TaskBoardPage() {
                   task={task}
                   onMove={() => updateTaskStatus(task.id, "pending")}
                   actionLabel="Reopen"
-                  priorityColors={priorityColors}
                   isCompleted
                 />
               ))}
@@ -193,7 +185,6 @@ interface TaskCardProps {
   task: Task;
   onMove: () => void;
   actionLabel: string;
-  priorityColors: Record<string, string>;
   isCompleted?: boolean;
 }
 
@@ -201,7 +192,6 @@ function TaskCard({
   task,
   onMove,
   actionLabel,
-  priorityColors,
   isCompleted = false,
 }: TaskCardProps) {
   return (
@@ -209,13 +199,8 @@ function TaskCard({
       className={`bg-white p-4 rounded-2xl border shadow-sm transition-all hover:shadow-md ${isCompleted ? "border-green-200 opacity-75" : "border-slate-200"}`}
     >
       <div className="flex justify-between items-start mb-2">
-        {/* 🔒 NEW: Flex container for Priority AND Room Badge */}
         <div className="flex flex-wrap gap-2">
-          <span
-            className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${priorityColors[task.priority]}`}
-          >
-            {task.priority} Priority
-          </span>
+          {/* 🔒 Priority Badge COMPLETELY REMOVED! */}
           {task.room_inventory?.room_number && (
             <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
               🏠 {task.room_inventory.room_number}

@@ -1,6 +1,6 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/Button";
-import { Users } from "lucide-react"; // Import Icon
+import { Users, AlertCircle, CheckCircle2 } from "lucide-react";
 
 export interface BookingData {
   id: string;
@@ -24,13 +24,13 @@ interface RoomProps {
   priceNight?: number;
   priceOvernight?: number;
   onBook: (room: BookingData) => void;
-  // ✅ New Props for Capacity & Ratings
   capacity: number;
   rating?: number;
   reviewCount?: number;
+  // 🔒 NEW: Available Count Prop
+  availableCount?: number;
 }
 
-// Dynamic Stars Component
 const Stars = ({ rating = 0 }: { rating?: number }) => (
   <div className="flex gap-1">
     {[...Array(5)].map((_, i) => (
@@ -64,28 +64,45 @@ export default function RoomCard({
   capacity,
   rating = 0,
   reviewCount = 0,
+  availableCount, // 🔒 NEW
 }: RoomProps) {
   return (
     <div className="bg-[#A2D5F2]/20 border border-blue-200 rounded-3xl p-6 flex flex-col md:flex-row gap-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
-      {/* Left: Image */}
       <div className="w-full md:w-1/3 relative h-64 md:h-auto rounded-2xl overflow-hidden shrink-0">
         <Image src={imageSrc} alt={title} fill className="object-cover" />
       </div>
 
-      {/* Right: Content */}
       <div className="flex-1 flex flex-col">
         <div className="flex justify-between items-start mb-2">
           <h3 className="text-2xl font-bold text-[#0A1A44] font-serif">
             {title}
           </h3>
-          <div className="text-right space-y-1">
-            <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full block w-fit ml-auto">
+          <div className="text-right flex flex-col items-end gap-1.5">
+            <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1.5 rounded-full block">
               Starts at ₱{price.toLocaleString()}
             </span>
-            {/* ✅ NEW: Capacity Badge */}
-            <span className="flex items-center justify-end gap-1.5 text-xs font-bold text-slate-500">
+
+            {/* 🔒 NEW: Availability Badge (Red for urgency, Green for plenty) */}
+            {availableCount !== undefined && (
+              <span
+                className={`flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-md shadow-sm border ${
+                  availableCount <= 2
+                    ? "bg-red-50 text-red-700 border-red-200 animate-pulse"
+                    : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                }`}
+              >
+                {availableCount <= 2 ? (
+                  <AlertCircle className="w-3 h-3" />
+                ) : (
+                  <CheckCircle2 className="w-3 h-3" />
+                )}
+                {availableCount} {availableCount === 1 ? "Room" : "Rooms"} Left
+              </span>
+            )}
+
+            <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500 mt-1">
               <Users className="w-3.5 h-3.5" />
-              Good for up to {capacity} Pax
+              Up to {capacity} Pax
             </span>
           </div>
         </div>
@@ -109,8 +126,6 @@ export default function RoomCard({
                 </span>
               </div>
             </div>
-
-            {/* Mirrored Rating for Visual Balance */}
             <div>
               <p className="text-xs font-semibold text-gray-700 mb-1">
                 Cleanliness
@@ -118,7 +133,6 @@ export default function RoomCard({
               <Stars rating={rating} />
             </div>
           </div>
-
           <div>
             <p className="text-xs font-semibold text-gray-700 mb-1">
               Room Comfort

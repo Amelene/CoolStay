@@ -11,33 +11,45 @@ async function cleanupExpiredBookings(
   adminDb: SupabaseClient,
   userId?: string,
 ) {
-  // Define how long a user has to complete their payment (e.g., 30 minutes)
   const EXPIRATION_MINUTES = 30;
-
-  // Calculate the exact cutoff timestamp
   const cutoffTime = new Date(
     Date.now() - EXPIRATION_MINUTES * 60 * 1000,
   ).toISOString();
 
-  // Update query: Target bookings that are 'pending' AND were created BEFORE the cutoff
-  let query = adminDb
+  // 1. Fetch pending bookings older than 30 minutes, AND check if they have payments
+  let fetchQuery = adminDb
     .from("bookings")
-    .update({
-      status: "cancelled",
-      special_requests:
-        "System: Auto-cancelled due to payment timeout (cart abandoned).",
-    })
+    .select("id, payments(id)")
     .eq("status", "pending")
-    .neq("payment_status", "paid")
-    .lt("created_at", cutoffTime); // 🔒 THE FIX: Use created_at, not check_in_date
+    .lt("created_at", cutoffTime);
 
-  // Optionally scope to a specific user if requested
   if (userId) {
-    query = query.eq("guest_id", userId);
+    fetchQuery = fetchQuery.eq("guest_id", userId);
   }
 
-  const { error } = await query;
-  if (error) console.error("Auto-cleanup error:", error);
+  const { data: expiredBookings, error: fetchError } = await fetchQuery;
+
+  if (fetchError || !expiredBookings) {
+    console.error("Auto-cleanup fetch error:", fetchError);
+    return;
+  }
+
+  // 2. 🔒 THE FIX: Filter out bookings that have a receipt uploaded. Grant them immunity.
+  const abandonedCartIds = expiredBookings
+    .filter((b) => !b.payments || b.payments.length === 0)
+    .map((b) => b.id);
+
+  // 3. Only cancel the true, empty abandoned carts
+  if (abandonedCartIds.length > 0) {
+    const { error: updateError } = await adminDb
+      .from("bookings")
+      .update({
+        status: "cancelled",
+      })
+      .in("id", abandonedCartIds);
+
+    if (updateError) console.error("Auto-cleanup update error:", updateError);
+  }
 }
 
 // GET Method (User Dashboard)
@@ -96,7 +108,6 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    // ⚠️ We purposefully IGNORE 'total_price' from body for security
     const {
       room_type_id,
       check_in,
@@ -106,7 +117,7 @@ export async function POST(request: Request) {
       infants,
       seniors,
       pwds,
-      discounts,
+      booking_type,
     } = body;
 
     const adminDb = createAdminClient(
@@ -114,20 +125,59 @@ export async function POST(request: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
 
-    // 1. GLOBAL CLEANUP
     await cleanupExpiredBookings(adminDb);
 
-    // 2. Check Room Details & Get REAL PRICE & CAPACITY from Database
+    // 2. Check Room Details
     const { data: roomType, error: roomError } = await adminDb
       .from("room_types")
-      // Ensure we select 'capacity' to validate headcount
+      // 🔒 FETCH NAME FOR CUTOFF VALIDATION
       .select(
-        "total_rooms, base_price, price_day, price_night, price_overnight, capacity",
+        "total_rooms, base_price, price_day, price_night, price_overnight, capacity, name",
       )
       .eq("id", room_type_id)
       .single();
 
     if (roomError || !roomType) throw new Error("Room type not found.");
+
+    const nowPHT = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }),
+    );
+    const todayPHTStr = `${nowPHT.getFullYear()}-${String(nowPHT.getMonth() + 1).padStart(2, "0")}-${String(nowPHT.getDate()).padStart(2, "0")}`;
+
+    if (check_in === todayPHTStr) {
+      const currentHour = nowPHT.getHours();
+
+      // Rule 1: Day Tours close at 2:00 PM (14:00)
+      if (booking_type === "day" && currentHour >= 14) {
+        return NextResponse.json(
+          {
+            error:
+              "Same-day Day Tour bookings close at 2:00 PM. Please book for tomorrow.",
+          },
+          { status: 400 },
+        );
+      }
+      // Rule 2: Night Tours close at 9:00 PM (21:00)
+      else if (booking_type === "night" && currentHour >= 21) {
+        return NextResponse.json(
+          {
+            error:
+              "Same-day Night Tour bookings close at 9:00 PM. Please book for tomorrow.",
+          },
+          { status: 400 },
+        );
+      }
+      // Rule 3: Overnight Rooms & Cottages close at 6:00 PM (18:00)
+      else if (booking_type === "overnight" && currentHour >= 18) {
+        return NextResponse.json(
+          {
+            error:
+              "Same-day room reservations close at 6:00 PM. Please book for tomorrow.",
+          },
+          { status: 400 },
+        );
+      }
+    }
 
     // 🔒 BACKEND CAPACITY VALIDATION
     const numAdults = Number(adults) || 1;
@@ -155,7 +205,6 @@ export async function POST(request: Request) {
       Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)),
     );
 
-    // Determine rate based on stay type
     let baseRate: number;
     if (check_in === check_out) {
       baseRate =
@@ -175,8 +224,8 @@ export async function POST(request: Request) {
 
     const baseTotalAmount = baseRate * nights;
 
-    // 🔒 SERVER-SIDE DISCOUNT CALCULATION (The "No Stacking" Rule)
-    const { promo_code } = body; // Extract from body
+    // 🔒 SERVER-SIDE DISCOUNT CALCULATION
+    const { promo_code } = body;
 
     let seniorPwdDiscount = 0;
     if (totalHeadcount > 0 && (numSeniors > 0 || numPwds > 0)) {
@@ -188,7 +237,6 @@ export async function POST(request: Request) {
     let marketingDiscount = 0;
     let appliedPromoId = null;
 
-    // Verify promo backend-side again for security
     if (promo_code) {
       const { data: promo } = await adminDb
         .from("promotions")
@@ -210,18 +258,17 @@ export async function POST(request: Request) {
       }
     }
 
-    // "Best Price Wins" Rule (No Stacking)
     let finalDiscountAmount = 0;
     if (seniorPwdDiscount >= marketingDiscount) {
       finalDiscountAmount = seniorPwdDiscount;
-      appliedPromoId = null; // We drop the promo because Senior is better
+      appliedPromoId = null;
     } else {
       finalDiscountAmount = marketingDiscount;
     }
 
     const calculatedTotal = baseTotalAmount - finalDiscountAmount;
 
-    // 4. Availability Check
+    // 4. Availability Check (Daily Concurrency Algorithm)
     const searchStart = check_in;
     const searchEnd =
       check_out === check_in
@@ -235,26 +282,48 @@ export async function POST(request: Request) {
       .select("check_in_date, check_out_date")
       .eq("room_type_id", room_type_id)
       .in("status", ["confirmed", "pending", "checked_in"])
-      .lte("check_in_date", searchEnd)
-      .gte("check_out_date", searchStart);
+      .lt("check_in_date", searchEnd)
+      .gte("check_out_date", searchStart); // .gte FIX APPLIED
 
     if (fetchError) throw fetchError;
 
-    const overlapCount =
-      existingBookings?.filter((b) => {
-        const bStart = b.check_in_date;
-        const bEnd =
-          b.check_in_date === b.check_out_date
-            ? new Date(new Date(b.check_in_date).getTime() + 86400000)
-                .toISOString()
-                .split("T")[0]
-            : b.check_out_date;
-        return bStart < searchEnd && bEnd > searchStart;
-      }).length || 0;
+    let maxConcurrency = 0;
+    const dailyCounts: Record<string, number> = {};
 
-    if (overlapCount >= roomType.total_rooms) {
+    existingBookings?.forEach((b) => {
+      const bStart = b.check_in_date;
+      const bEnd =
+        b.check_in_date === b.check_out_date
+          ? new Date(new Date(b.check_in_date).getTime() + 86400000)
+              .toISOString()
+              .split("T")[0]
+          : b.check_out_date;
+
+      const overlapStart = new Date(
+        Math.max(new Date(bStart).getTime(), new Date(searchStart).getTime()),
+      );
+      const overlapEnd = new Date(
+        Math.min(new Date(bEnd).getTime(), new Date(searchEnd).getTime()),
+      );
+
+      const current = new Date(overlapStart);
+      while (current < overlapEnd) {
+        const dateStr = current.toISOString().split("T")[0];
+        dailyCounts[dateStr] = (dailyCounts[dateStr] || 0) + 1;
+
+        if (dailyCounts[dateStr] > maxConcurrency) {
+          maxConcurrency = dailyCounts[dateStr];
+        }
+
+        current.setDate(current.getDate() + 1);
+      }
+    });
+
+    if (maxConcurrency >= roomType.total_rooms) {
       return NextResponse.json(
-        { error: `Fully booked! Only ${roomType.total_rooms} rooms exist.` },
+        {
+          error: `Fully booked! Maximum capacity reached on overlapping dates.`,
+        },
         { status: 409 },
       );
     }
@@ -274,8 +343,8 @@ export async function POST(request: Request) {
         children: numChildren,
         infants: numInfants,
         total_amount: calculatedTotal,
-        discount_amount: finalDiscountAmount, // <-- NEW
-        promo_id: appliedPromoId, // <-- NEW
+        discount_amount: finalDiscountAmount,
+        promo_id: appliedPromoId,
         security_deposit_amount: SECURITY_DEPOSIT,
         security_deposit_status: "pending",
         status: "pending",
@@ -286,39 +355,10 @@ export async function POST(request: Request) {
 
     if (insertError) throw insertError;
 
-    // 💥 TRIGGER ATOMIC RPC IF PROMO WAS USED
     if (appliedPromoId) {
       await adminDb.rpc("increment_promo_usage", {
         promo_id_param: appliedPromoId,
       });
-    }
-
-    // 5.5 INSERT DISCOUNT VERIFICATIONS
-    if (discounts && discounts.length > 0) {
-      const discountPayload = discounts.map(
-        (d: {
-          guest_name: string;
-          discount_type: string;
-          id_number: string;
-          id_image_url: string;
-        }) => ({
-          booking_id: bookingData.id,
-          guest_name: d.guest_name,
-          discount_type: d.discount_type,
-          id_number: d.id_number,
-          id_image_url: d.id_image_url,
-          verification_status: "Pending",
-        }),
-      );
-
-      const { error: discountError } = await adminDb
-        .from("booking_discounts")
-        .insert(discountPayload);
-
-      if (discountError) {
-        // Log but don't fail — booking and payment are already secured
-        console.error("Failed to insert discount records:", discountError);
-      }
     }
 
     // 6. Send confirmation email asynchronously
@@ -333,17 +373,6 @@ export async function POST(request: Request) {
       .select("name")
       .eq("id", room_type_id)
       .single();
-
-    // 🔒 Admin Notification for New Booking (user_id: null = admin-only)
-    await adminDb.from("notifications").insert({
-      id: crypto.randomUUID(),
-      title: "New Pending Booking",
-      message: `${userProfile?.full_name || "A guest"} booked ${roomDetails?.name || "a room"} for ${check_in}. Waiting for downpayment.`,
-      type: "booking",
-      is_read: false,
-      created_at: new Date().toISOString(),
-      // user_id intentionally omitted → defaults to null (admin alert)
-    });
 
     sendBookingConfirmationEmailWithRetry({
       guestName: userProfile?.full_name || "Guest",

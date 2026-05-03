@@ -18,12 +18,12 @@ import {
   X,
   Tag,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-// --- TYPES ---
 export interface BookingData {
   id: string;
   name: string;
@@ -46,14 +46,6 @@ interface BookRoomModalProps {
 
 type StayType = "day" | "night" | "overnight";
 
-interface DiscountGuest {
-  type: "Senior" | "PWD";
-  name: string;
-  idNumber: string;
-  file: File | null;
-}
-
-// --- HELPER: Calendar Logic ---
 const getDaysInMonth = (year: number, month: number) =>
   new Date(year, month + 1, 0).getDate();
 const getFirstDayOfMonth = (year: number, month: number) =>
@@ -71,7 +63,6 @@ export default function BookRoomModal({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
-  // --- STATE ---
   const [stayType, setStayType] = useState<StayType>(() => {
     if (room.price_overnight || room.base_price) return "overnight";
     if (room.price_day) return "day";
@@ -80,18 +71,12 @@ export default function BookRoomModal({
 
   const [checkIn, setCheckIn] = useState(initialCheckIn);
   const [checkOut, setCheckOut] = useState(initialCheckOut);
-
-  // Guest Counters
   const [adults, setAdults] = useState(initialAdults);
   const [children, setChildren] = useState(initialChildren);
   const [infants, setInfants] = useState(initialInfants);
-
-  // Discount Counters
   const [seniors, setSeniors] = useState(0);
   const [pwds, setPwds] = useState(0);
-  const [discountGuests, setDiscountGuests] = useState<DiscountGuest[]>([]);
 
-  // PROMO STATE
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [verifyingPromo, setVerifyingPromo] = useState(false);
   const [appliedPromo, setAppliedPromo] = useState<{
@@ -102,15 +87,12 @@ export default function BookRoomModal({
   } | null>(null);
 
   const [error, setError] = useState<string | null>(null);
-
-  // Payment Modal State
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [createdBooking, setCreatedBooking] = useState<{
     id: string;
     total_amount: number;
   } | null>(null);
 
-  // Calendar UI State
   const [showCalendar, setShowCalendar] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
   const [hoverDate, setHoverDate] = useState<string | null>(null);
@@ -135,25 +117,13 @@ export default function BookRoomModal({
       if (
         calendarRef.current &&
         !calendarRef.current.contains(event.target as Node)
-      ) {
+      )
         setShowCalendar(false);
-      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Auto-generate discount guest form fields when counters change
-  useEffect(() => {
-    const newGuests: DiscountGuest[] = [];
-    for (let i = 0; i < seniors; i++)
-      newGuests.push({ type: "Senior", name: "", idNumber: "", file: null });
-    for (let i = 0; i < pwds; i++)
-      newGuests.push({ type: "PWD", name: "", idNumber: "", file: null });
-    setDiscountGuests(newGuests);
-  }, [seniors, pwds]);
-
-  // --- CAPACITY GUARDRAILS ---
   const maxCapacity = room.capacity || 10;
   const currentTotalGuests = adults + children + seniors + pwds;
   const canAddGuest = currentTotalGuests < maxCapacity;
@@ -162,27 +132,55 @@ export default function BookRoomModal({
     setter: React.Dispatch<React.SetStateAction<number>>,
     currentValue: number,
   ) => {
-    if (canAddGuest) {
-      setter(currentValue + 1);
-    } else {
+    if (canAddGuest) setter(currentValue + 1);
+    else
       toast.error(
         `Maximum capacity of ${maxCapacity} guests reached for ${room.name}.`,
       );
+  };
+
+  // 🔒 NEW: Smart Input Typing Handlers
+  const handleTypeGuest = (
+    valStr: string,
+    setter: React.Dispatch<React.SetStateAction<number>>,
+    currentVal: number,
+  ) => {
+    if (valStr === "") {
+      setter(0); // Allow temporary empty state for clean backspacing
+      return;
+    }
+    const val = parseInt(valStr, 10);
+    if (isNaN(val) || val < 0) return;
+
+    const otherGuests = currentTotalGuests - currentVal;
+    if (otherGuests + val > maxCapacity) {
+      toast.error(
+        `Maximum capacity of ${maxCapacity} guests reached for ${room.name}.`,
+      );
+      setter(maxCapacity - otherGuests);
+    } else {
+      setter(val);
     }
   };
 
-  // --- ADVANCED PRICE CALCULATION (No Stacking Logic) ---
+  const handleTypeInfant = (valStr: string) => {
+    if (valStr === "") {
+      setInfants(0);
+      return;
+    }
+    const val = parseInt(valStr, 10);
+    if (!isNaN(val) && val >= 0) setInfants(val);
+  };
+
   let baseTotalPrice = 0;
   let finalTotalPrice = 0;
 
-  // 1. Calculate Base Price
   if (checkIn && checkOut) {
     const start = new Date(checkIn);
     const end = new Date(checkOut);
     const diffDays = Math.ceil(
       (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
     );
-
     if (stayType === "day") baseTotalPrice = room.price_day || room.base_price;
     else if (stayType === "night")
       baseTotalPrice = room.price_night || room.base_price;
@@ -190,7 +188,6 @@ export default function BookRoomModal({
       baseTotalPrice = diffDays * (room.price_overnight || room.base_price);
   }
 
-  // 2. Calculate Senior/PWD Discount (20% of eligible share)
   let seniorPwdDiscount = 0;
   const totalHeadcount = adults + children + seniors + pwds;
   if (totalHeadcount > 0 && (seniors > 0 || pwds > 0)) {
@@ -199,17 +196,13 @@ export default function BookRoomModal({
     seniorPwdDiscount = eligibleShare * 0.2;
   }
 
-  // 3. Calculate Marketing Promo Discount
   let marketingDiscount = 0;
   if (appliedPromo) {
-    if (appliedPromo.type === "percentage") {
+    if (appliedPromo.type === "percentage")
       marketingDiscount = baseTotalPrice * (appliedPromo.value / 100);
-    } else {
-      marketingDiscount = appliedPromo.value; // fixed amount
-    }
+    else marketingDiscount = appliedPromo.value;
   }
 
-  // 4. THE BEST PRICE RULE (Determine winner)
   let finalDiscountAmount = 0;
   let activeDiscountType: "none" | "senior" | "promo" = "none";
 
@@ -225,7 +218,6 @@ export default function BookRoomModal({
 
   finalTotalPrice = baseTotalPrice - finalDiscountAmount;
 
-  // --- EVENT HANDLERS ---
   const handleStayTypeChange = (type: StayType) => {
     setStayType(type);
     if (type !== "overnight" && checkIn) setCheckOut(checkIn);
@@ -255,10 +247,8 @@ export default function BookRoomModal({
     }
   };
 
-  // API Call to verify promo code
   const handleApplyPromo = async () => {
     if (!promoCodeInput.trim()) return;
-
     if (baseTotalPrice <= 0) {
       toast.error("Please select your dates first to apply a promo.");
       return;
@@ -274,9 +264,7 @@ export default function BookRoomModal({
           cart_total: baseTotalPrice,
         }),
       });
-
       const data = await res.json();
-
       if (!res.ok)
         throw new Error(data.error || "Failed to verify promo code.");
 
@@ -284,26 +272,13 @@ export default function BookRoomModal({
       toast.success("Promo code applied successfully!");
       setPromoCodeInput("");
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        toast.error(err.message);
-      } else {
-        toast.error("An unexpected error occurred.");
-      }
+      toast.error(
+        err instanceof Error ? err.message : "An unexpected error occurred.",
+      );
       setAppliedPromo(null);
     } finally {
       setVerifyingPromo(false);
     }
-  };
-
-  // Payment Handlers (Added back)
-  const handlePaymentSuccess = () => {
-    setShowPaymentModal(false);
-    onClose();
-    router.push("/dashboard");
-  };
-
-  const handlePaymentClose = () => {
-    setShowPaymentModal(false);
   };
 
   const handleBooking = async (e: React.FormEvent) => {
@@ -311,31 +286,23 @@ export default function BookRoomModal({
     setLoading(true);
     setError(null);
 
-    const today = new Date().toISOString().split("T")[0];
+    const nowPHT = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }),
+    );
+    const todayPHTStr = `${nowPHT.getFullYear()}-${String(nowPHT.getMonth() + 1).padStart(2, "0")}-${String(nowPHT.getDate()).padStart(2, "0")}`;
 
     if (!checkIn) {
       toast.error("Please select a date.");
       setLoading(false);
       return;
     }
-    if (checkIn < today) {
+    if (checkIn < todayPHTStr) {
       toast.error("Cannot book past dates.");
       setLoading(false);
       return;
     }
     if (stayType === "overnight" && checkOut <= checkIn) {
       toast.error("Overnight stays require check-out after check-in.");
-      setLoading(false);
-      return;
-    }
-
-    const missingDocs = discountGuests.some(
-      (g) => !g.name || !g.idNumber || !g.file,
-    );
-    if (activeDiscountType === "senior" && missingDocs) {
-      toast.error(
-        "Please complete all required fields and ID uploads for declared Seniors/PWDs.",
-      );
       setLoading(false);
       return;
     }
@@ -352,34 +319,6 @@ export default function BookRoomModal({
     }
 
     try {
-      // Corrected Type
-      let uploadedDiscounts: {
-        guest_name: string;
-        discount_type: string;
-        id_number: string;
-        id_image_url: string;
-      }[] = [];
-
-      if (activeDiscountType === "senior" && discountGuests.length > 0) {
-        uploadedDiscounts = await Promise.all(
-          discountGuests.map(async (guest) => {
-            const fileExt = guest.file!.name.split(".").pop();
-            const fileName = `${user.id}-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-            const filePath = `ids/${fileName}`;
-            const { error: uploadError } = await supabase.storage
-              .from("verification_ids")
-              .upload(filePath, guest.file!);
-            if (uploadError) throw new Error("Failed to upload ID images.");
-            return {
-              guest_name: guest.name,
-              discount_type: guest.type,
-              id_number: guest.idNumber,
-              id_image_url: filePath,
-            };
-          }),
-        );
-      }
-
       const response = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -392,7 +331,7 @@ export default function BookRoomModal({
           infants,
           seniors,
           pwds,
-          discounts: uploadedDiscounts,
+          booking_type: stayType,
           promo_code:
             activeDiscountType === "promo" && appliedPromo
               ? appliedPromo.code
@@ -409,7 +348,6 @@ export default function BookRoomModal({
         total_amount: result.booking.total_amount,
       });
       setShowPaymentModal(true);
-      toast.success("Booking created! Please complete payment.");
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);
@@ -447,6 +385,12 @@ export default function BookRoomModal({
       "December",
     ];
 
+    const nowPHT = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }),
+    );
+    const todayPHTStr = `${nowPHT.getFullYear()}-${String(nowPHT.getMonth() + 1).padStart(2, "0")}-${String(nowPHT.getDate()).padStart(2, "0")}`;
+    const currentHourPHT = nowPHT.getHours();
+
     return (
       <div className="w-64 p-2">
         <div className="text-center font-bold text-[#0A1A44] mb-2 font-serif">
@@ -463,8 +407,16 @@ export default function BookRoomModal({
           ))}
           {days.map((day) => {
             const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-            const todayStr = new Date().toISOString().split("T")[0];
-            const isPast = dateStr < todayStr;
+
+            let isPast = dateStr < todayPHTStr;
+
+            if (dateStr === todayPHTStr) {
+              if (stayType === "day" && currentHourPHT >= 14) isPast = true;
+              if (stayType === "night" && currentHourPHT >= 21) isPast = true;
+              if (stayType === "overnight" && currentHourPHT >= 18)
+                isPast = true;
+            }
+
             const isSelected = dateStr === checkIn || dateStr === checkOut;
             const isInRange =
               checkIn && checkOut && dateStr > checkIn && dateStr < checkOut;
@@ -491,6 +443,11 @@ export default function BookRoomModal({
                 onClick={() => handleDateClick(dateStr)}
                 onMouseEnter={() => setHoverDate(dateStr)}
                 className={`h-8 w-8 text-xs rounded-full flex items-center justify-center transition-all ${bgClass}`}
+                title={
+                  isPast && dateStr === todayPHTStr
+                    ? "Booking closed for today"
+                    : undefined
+                }
               >
                 {day}
               </button>
@@ -504,7 +461,7 @@ export default function BookRoomModal({
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-        <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-y-auto max-h-[95vh]">
+        <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-y-auto max-h-[95vh] custom-scrollbar">
           <div className="p-8">
             <button
               onClick={onClose}
@@ -524,7 +481,6 @@ export default function BookRoomModal({
                   </p>
                 </div>
 
-                {/* EXPERIENCE TOGGLES */}
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
@@ -561,7 +517,6 @@ export default function BookRoomModal({
                   </button>
                 </div>
 
-                {/* DATE PICKER */}
                 <div className="relative" ref={calendarRef}>
                   <label className="text-xs font-bold text-[#0A1A44] uppercase tracking-wider mb-1 block">
                     Date of Stay
@@ -633,7 +588,6 @@ export default function BookRoomModal({
                   )}
                 </div>
 
-                {/* AGE-SPECIFIC GUEST SELECTORS */}
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                   {/* Adults */}
                   <div className="flex flex-col items-center p-2 rounded-xl border border-slate-200">
@@ -644,20 +598,27 @@ export default function BookRoomModal({
                       <button
                         type="button"
                         onClick={() => setAdults(Math.max(1, adults - 1))}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
                       <input
                         type="number"
-                        readOnly
-                        value={adults}
-                        className="w-8 text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent cursor-default"
+                        value={adults === 0 ? "" : adults}
+                        onChange={(e) =>
+                          handleTypeGuest(e.target.value, setAdults, adults)
+                        }
+                        onBlur={() => {
+                          if (adults < 1) setAdults(1);
+                        }}
+                        placeholder="1"
+                        className="text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent min-w-[2rem]"
+                        style={{ width: `${String(adults).length + 1}ch` }}
                       />
                       <button
                         type="button"
                         onClick={() => handleAddGuest(setAdults, adults)}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -676,20 +637,24 @@ export default function BookRoomModal({
                       <button
                         type="button"
                         onClick={() => setChildren(Math.max(0, children - 1))}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
                       <input
                         type="number"
-                        readOnly
-                        value={children}
-                        className="w-8 text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent cursor-default"
+                        value={children === 0 ? "" : children}
+                        onChange={(e) =>
+                          handleTypeGuest(e.target.value, setChildren, children)
+                        }
+                        placeholder="0"
+                        className="text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent min-w-[2rem]"
+                        style={{ width: `${String(children).length + 1}ch` }}
                       />
                       <button
                         type="button"
                         onClick={() => handleAddGuest(setChildren, children)}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -708,20 +673,22 @@ export default function BookRoomModal({
                       <button
                         type="button"
                         onClick={() => setInfants(Math.max(0, infants - 1))}
-                        className="w-6 h-6 bg-white hover:bg-blue-100 rounded-full flex items-center justify-center text-blue-600 transition-colors shadow-sm"
+                        className="w-6 h-6 bg-white hover:bg-blue-100 rounded-full flex items-center justify-center text-blue-600 transition-colors shadow-sm shrink-0"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
                       <input
                         type="number"
-                        readOnly
-                        value={infants}
-                        className="w-8 text-center outline-none font-bold text-blue-800 no-spinner bg-transparent cursor-default"
+                        value={infants === 0 ? "" : infants}
+                        onChange={(e) => handleTypeInfant(e.target.value)}
+                        placeholder="0"
+                        className="text-center outline-none font-bold text-blue-800 no-spinner bg-transparent min-w-[2rem]"
+                        style={{ width: `${String(infants).length + 1}ch` }}
                       />
                       <button
                         type="button"
                         onClick={() => setInfants(infants + 1)}
-                        className="w-6 h-6 bg-white hover:bg-blue-100 rounded-full flex items-center justify-center text-blue-600 transition-colors shadow-sm"
+                        className="w-6 h-6 bg-white hover:bg-blue-100 rounded-full flex items-center justify-center text-blue-600 transition-colors shadow-sm shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -740,20 +707,24 @@ export default function BookRoomModal({
                       <button
                         type="button"
                         onClick={() => setSeniors(Math.max(0, seniors - 1))}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
                       <input
                         type="number"
-                        readOnly
-                        value={seniors}
-                        className="w-8 text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent cursor-default"
+                        value={seniors === 0 ? "" : seniors}
+                        onChange={(e) =>
+                          handleTypeGuest(e.target.value, setSeniors, seniors)
+                        }
+                        placeholder="0"
+                        className="text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent min-w-[2rem]"
+                        style={{ width: `${String(seniors).length + 1}ch` }}
                       />
                       <button
                         type="button"
                         onClick={() => handleAddGuest(setSeniors, seniors)}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -772,20 +743,24 @@ export default function BookRoomModal({
                       <button
                         type="button"
                         onClick={() => setPwds(Math.max(0, pwds - 1))}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
                       <input
                         type="number"
-                        readOnly
-                        value={pwds}
-                        className="w-8 text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent cursor-default"
+                        value={pwds === 0 ? "" : pwds}
+                        onChange={(e) =>
+                          handleTypeGuest(e.target.value, setPwds, pwds)
+                        }
+                        placeholder="0"
+                        className="text-center outline-none font-bold text-[#0A1A44] no-spinner bg-transparent min-w-[2rem]"
+                        style={{ width: `${String(pwds).length + 1}ch` }}
                       />
                       <button
                         type="button"
                         onClick={() => handleAddGuest(setPwds, pwds)}
-                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors"
+                        className="w-6 h-6 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-600 transition-colors shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
@@ -796,90 +771,44 @@ export default function BookRoomModal({
                   </div>
                 </div>
 
-                {/* MANDATORY ID UPLOADS */}
-                {discountGuests.length > 0 && (
+                {(seniors > 0 || pwds > 0) && (
                   <div
-                    className={`p-4 rounded-xl border transition-all ${activeDiscountType === "promo" ? "bg-slate-50 border-slate-200 opacity-60" : "bg-orange-50 border-orange-200"}`}
+                    className={`p-4 rounded-xl border transition-all ${activeDiscountType === "promo" ? "bg-slate-50 border-slate-200" : "bg-red-50 border-red-200"}`}
                   >
                     <h4
-                      className={`text-xs font-bold uppercase mb-2 ${activeDiscountType === "promo" ? "text-slate-500" : "text-orange-800"}`}
+                      className={`text-xs font-bold uppercase mb-2 flex items-center gap-1.5 ${activeDiscountType === "promo" ? "text-slate-500" : "text-red-800"}`}
                     >
-                      Verification Required for Discount
+                      <AlertTriangle className="w-4 h-4" />
+                      Mandatory ID Presentation
                     </h4>
 
-                    {/* The No Stacking Explanation */}
-                    {activeDiscountType === "promo" && (
-                      <p className="text-[10px] text-slate-500 mb-3 bg-white p-2 rounded border border-slate-200">
-                        <span className="font-bold text-orange-600 mr-1">
+                    {activeDiscountType === "promo" ? (
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        <span className="font-bold text-slate-700 mr-1">
                           Note:
                         </span>
-                        Your Promo Code offers a higher discount than the
-                        Senior/PWD rate. ID uploads are not required when using
-                        this promo code.
+                        Your Promo Code gives higher savings than the Senior/PWD
+                        discount. You do not need to present IDs at check-in.
                       </p>
-                    )}
-
-                    {activeDiscountType === "senior" && (
-                      <div className="space-y-4">
-                        {discountGuests.map((guest, index) => (
-                          <div
-                            key={index}
-                            className="bg-white p-3 rounded-lg border border-orange-100 shadow-sm"
-                          >
-                            <span className="text-[10px] font-bold text-slate-500 uppercase block mb-2">
-                              {guest.type} Guest {index + 1}
-                            </span>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
-                              <input
-                                type="text"
-                                placeholder="Full Name on ID"
-                                value={guest.name}
-                                onChange={(e) => {
-                                  const newGuests = [...discountGuests];
-                                  newGuests[index].name = e.target.value;
-                                  setDiscountGuests(newGuests);
-                                }}
-                                className="text-sm border border-slate-200 p-2 rounded-md w-full outline-none focus:border-orange-400"
-                                required
-                              />
-                              <input
-                                type="text"
-                                placeholder="ID Number"
-                                value={guest.idNumber}
-                                onChange={(e) => {
-                                  const newGuests = [...discountGuests];
-                                  newGuests[index].idNumber = e.target.value;
-                                  setDiscountGuests(newGuests);
-                                }}
-                                className="text-sm border border-slate-200 p-2 rounded-md w-full outline-none focus:border-orange-400"
-                                required
-                              />
-                            </div>
-                            <input
-                              type="file"
-                              accept="image/png, image/jpeg, image/jpg"
-                              onChange={(e) => {
-                                const newGuests = [...discountGuests];
-                                newGuests[index].file =
-                                  e.target.files?.[0] || null;
-                                setDiscountGuests(newGuests);
-                              }}
-                              className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-orange-100 file:text-orange-700 hover:file:bg-orange-200"
-                              required
-                            />
-                          </div>
-                        ))}
-                      </div>
+                    ) : (
+                      <p className="text-[11px] text-red-700 leading-relaxed">
+                        You have applied a Senior Citizen / PWD discount. You{" "}
+                        <strong className="font-black text-red-900 uppercase">
+                          must
+                        </strong>{" "}
+                        present valid physical IDs at the front desk upon
+                        check-in. Failure to present valid IDs will result in
+                        the immediate forfeiture of this discount, and the
+                        balance will be charged to you on-site.
+                      </p>
                     )}
                   </div>
                 )}
 
-                {/* PROMO CODE INPUT UI */}
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                   <label className="text-xs font-bold text-[#0A1A44] uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <Tag className="w-3 h-3" /> Have a Promo Code?
+                    <Tag className="w-3 h-3" /> Promo Code
                   </label>
-
                   {appliedPromo ? (
                     <div className="flex items-center justify-between bg-green-50 border border-green-200 p-3 rounded-lg">
                       <div className="flex items-center gap-2">
@@ -902,12 +831,12 @@ export default function BookRoomModal({
                     <div className="flex gap-2">
                       <input
                         type="text"
-                        placeholder="Enter code (e.g. SUMMER2026)"
+                        placeholder="e.g. SUMMER2026"
                         value={promoCodeInput}
                         onChange={(e) =>
                           setPromoCodeInput(e.target.value.toUpperCase())
                         }
-                        className="flex-1 text-sm border border-slate-200 p-2 rounded-lg outline-none focus:border-[#0A1A44] uppercase font-bold text-slate-700"
+                        className="flex-1 text-sm border border-slate-200 p-2 rounded-lg outline-none focus:border-[#0A1A44] uppercase font-bold text-slate-700 bg-white"
                       />
                       <button
                         type="button"
@@ -925,15 +854,14 @@ export default function BookRoomModal({
                   )}
                 </div>
 
-                {/* PRICE SUMMARY */}
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col justify-center mt-2 relative overflow-hidden">
                   {activeDiscountType === "promo" && seniorPwdDiscount > 0 && (
                     <div className="absolute top-0 left-0 right-0 bg-blue-100 text-blue-800 text-[9px] font-bold uppercase text-center py-0.5 tracking-wider">
-                      Promo code gives higher savings than Senior discount
+                      Promo gives higher savings than Senior discount
                     </div>
                   )}
                   {activeDiscountType === "senior" && appliedPromo && (
-                    <div className="absolute top-0 left-0 right-0 bg-orange-100 text-orange-800 text-[9px] font-bold uppercase text-center py-0.5 tracking-wider">
+                    <div className="absolute top-0 left-0 right-0 bg-red-100 text-red-800 text-[9px] font-bold uppercase text-center py-0.5 tracking-wider">
                       Senior discount applied (Higher savings than promo)
                     </div>
                   )}
@@ -954,7 +882,7 @@ export default function BookRoomModal({
                       <span className="text-xs text-green-600 font-semibold flex flex-col">
                         {activeDiscountType === "senior"
                           ? "Senior/PWD Discount (20%)"
-                          : `Promo Code (${appliedPromo?.code})`}
+                          : `Promo (${appliedPromo?.code})`}
                       </span>
                       <span className="text-sm font-bold text-green-600">
                         - ₱{" "}
@@ -975,15 +903,13 @@ export default function BookRoomModal({
                     </span>
                   </div>
 
-                  {/* Security Deposit Row */}
                   <div className="border-t border-slate-200 pt-3 flex justify-between items-center">
                     <div className="flex flex-col">
                       <span className="text-xs text-slate-600 font-semibold">
                         Refundable Security Deposit
                       </span>
                       <span className="text-[10px] text-slate-400 mt-0.5">
-                        One Thousand Pesos (₱1,000.00) — Cash, collected at
-                        check-in
+                        ₱1,000.00 — Cash, collected at check-in
                       </span>
                     </div>
                     <span className="text-sm font-bold text-slate-700 ml-4 shrink-0">
@@ -991,9 +917,8 @@ export default function BookRoomModal({
                     </span>
                   </div>
                   <p className="text-[9px] text-slate-400 leading-tight mt-2 flex items-start gap-1">
-                    <span className="text-red-400 font-bold">*</span>The
-                    security deposit is fully refundable upon check-out, subject
-                    to room inspection.
+                    <span className="text-red-400 font-bold">*</span>Fully
+                    refundable upon check-out, subject to inspection.
                   </p>
                 </div>
 
@@ -1018,13 +943,16 @@ export default function BookRoomModal({
         </div>
       </div>
 
-      {/* Payment Modal */}
       {showPaymentModal && createdBooking && (
         <UserPaymentModal
           isOpen={showPaymentModal}
-          onClose={handlePaymentClose}
+          onClose={() => setShowPaymentModal(false)}
           booking={createdBooking}
-          onSuccess={handlePaymentSuccess}
+          onSuccess={() => {
+            setShowPaymentModal(false);
+            onClose();
+            router.push("/dashboard");
+          }}
         />
       )}
     </>
