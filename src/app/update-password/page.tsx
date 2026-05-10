@@ -18,20 +18,58 @@ export default function UpdatePasswordPage() {
   const [loading, setLoading] = useState(false);
   const [verifyingSession, setVerifyingSession] = useState(true);
 
-  // Check if session exists (user verified OTP or Magic Link)
+  // 🔒 Listen for auth state change instead of calling getUser() directly.
+  // Admin invite links use the implicit flow: tokens arrive as a URL hash
+  // (#access_token=...). The Supabase client processes the hash asynchronously
+  // AFTER the component first mounts, so calling getUser() immediately always
+  // returns null. onAuthStateChange correctly fires SIGNED_IN once the session
+  // is established from the hash.
   useEffect(() => {
-    const checkSession = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        toast.error("Session expired. Please request a new code.");
-        router.replace("/login");
-        return;
-      }
-      setVerifyingSession(false);
-    };
-    checkSession();
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+
+    // ⚡ Step 1: Immediately handle error tokens returned by Supabase.
+    const hashError = hashParams.get("error_code") || hashParams.get("error");
+    if (hashError) {
+      const desc = hashParams.get("error_description")?.replace(/\+/g, " ");
+      toast.error(
+        hashError === "otp_expired"
+          ? "This invite link has expired. Please ask your admin to send a new one."
+          : desc || "Invalid invite link. Please request a new one."
+      );
+      router.replace("/login");
+      return;
+    }
+
+    const accessToken = hashParams.get("access_token");
+    const refreshToken = hashParams.get("refresh_token");
+
+    if (accessToken && refreshToken) {
+      // ⚡ Step 2: createBrowserClient (@supabase/ssr) does NOT auto-process hash tokens.
+      // It only manages sessions via cookies. We must manually call setSession() with
+      // the tokens from the URL hash so Supabase can establish an authenticated session.
+      supabase.auth
+        .setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(({ data, error }) => {
+          if (error || !data.session) {
+            toast.error("Invite link is invalid or has expired. Please request a new one.");
+            router.replace("/login");
+          } else {
+            // ✅ Session established — show the password form
+            setVerifyingSession(false);
+          }
+        });
+    } else {
+      // ⚡ Step 3: No tokens in hash — check for an existing cookie session
+      // (e.g. user navigated directly to /update-password while already logged in).
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          setVerifyingSession(false);
+        } else {
+          toast.error("No active session. Please use your invite link.");
+          router.replace("/login");
+        }
+      });
+    }
   }, [supabase, router]);
 
   // Derived state for strength (No useEffect needed)
@@ -110,40 +148,36 @@ export default function UpdatePasswordPage() {
             {/* Strength Meter */}
             <div className="flex gap-1 h-1.5 mt-2 px-1">
               <div
-                className={`flex-1 rounded-full transition-colors ${
-                  password.length > 0
-                    ? strength >= 1
-                      ? "bg-red-400"
-                      : "bg-red-200"
-                    : "bg-gray-200"
-                }`}
+                className={`flex-1 rounded-full transition-colors ${password.length > 0
+                  ? strength >= 1
+                    ? "bg-red-400"
+                    : "bg-red-200"
+                  : "bg-gray-200"
+                  }`}
               />
               <div
-                className={`flex-1 rounded-full transition-colors ${
-                  password.length > 0
-                    ? strength >= 2
-                      ? "bg-yellow-400"
-                      : "bg-gray-200"
+                className={`flex-1 rounded-full transition-colors ${password.length > 0
+                  ? strength >= 2
+                    ? "bg-yellow-400"
                     : "bg-gray-200"
-                }`}
+                  : "bg-gray-200"
+                  }`}
               />
               <div
-                className={`flex-1 rounded-full transition-colors ${
-                  password.length > 0
-                    ? strength >= 3
-                      ? "bg-blue-400"
-                      : "bg-gray-200"
+                className={`flex-1 rounded-full transition-colors ${password.length > 0
+                  ? strength >= 3
+                    ? "bg-blue-400"
                     : "bg-gray-200"
-                }`}
+                  : "bg-gray-200"
+                  }`}
               />
               <div
-                className={`flex-1 rounded-full transition-colors ${
-                  password.length > 0
-                    ? strength >= 4
-                      ? "bg-green-500"
-                      : "bg-gray-200"
+                className={`flex-1 rounded-full transition-colors ${password.length > 0
+                  ? strength >= 4
+                    ? "bg-green-500"
                     : "bg-gray-200"
-                }`}
+                  : "bg-gray-200"
+                  }`}
               />
             </div>
             <p className="text-[10px] text-gray-500 px-1 pt-1 flex justify-between">

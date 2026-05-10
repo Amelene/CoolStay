@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { logAdminAction } from "@/lib/admin-logger";
+import { ROLE_HOME, UserRole } from "@/lib/role_config";
 
 export async function POST(request: Request) {
   try {
@@ -24,10 +25,11 @@ export async function POST(request: Request) {
     }
 
     // 2. Fetch User Profile & Settings
+    // Look up via auth_user_id (FK to auth.users), not the table's own auto-generated id.
     const { data: profile } = await supabase
       .from("users")
       .select("role, full_name, is_two_factor_enabled")
-      .eq("id", user.id)
+      .eq("auth_user_id", user.id)
       .single();
 
     // 3. 2FA Check Enforcement
@@ -45,8 +47,12 @@ export async function POST(request: Request) {
       `Role: ${profile?.role}`,
     );
 
-    const redirectUrl =
-      profile?.role === "admin" ? "/admin/dashboard" : "/dashboard";
+    // Redirect each role to its designated home page.
+    // staff → /admin/tasks (scoped view)
+    // admin / manager / front_desk → /admin/dashboard
+    // user (guest) → /dashboard
+    const role = (profile?.role ?? "user") as UserRole;
+    const redirectUrl = ROLE_HOME[role] ?? "/dashboard";
 
     return NextResponse.json({ redirectUrl });
   } catch (error) {

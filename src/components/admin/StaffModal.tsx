@@ -1,525 +1,220 @@
 "use client";
 
-import { Button } from "@/components/ui/Button";
-import { StaffSchema } from "@/lib/schemas";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, ShieldAlert, Wand2, X } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useState, useEffect, useMemo } from "react";
+import { X, UserPlus, Loader2 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import { z } from "zod";
-
-interface StaffMember {
-  id?: number;
-  employee_id: string;
-  first_name: string;
-  last_name: string;
-  middle_name?: string;
-  email: string;
-  phone: string;
-  position: string;
-  department: string;
-  status: string;
-  salary: number;
-  hire_date?: string;
-}
+import { onboardSchema, type OnboardFormData } from "@/lib/schemas";
 
 interface StaffModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  staffToEdit?: StaffMember | null;
 }
 
-const MIN_SALARY_BY_DEPT: Record<string, number> = {
-  "Front Desk": 12000,
-  Housekeeping: 12000,
-  Maintenance: 17000,
-  Security: 12000,
-  Management: 15000,
+const ROLE_MAPPING = {
+  admin: { positions: ["Super Admin"], salary: 45000 },
+  manager: { positions: ["Operations Manager"], salary: 35000 },
+  front_desk: { positions: ["Receptionist", "Concierge"], salary: 22000 },
+  staff: { positions: ["Cleaner", "Maintenance", "Security"], salary: 16000 },
 };
 
-const StaffFormSchema = StaffSchema.extend({
-  role: z.string().optional(),
-  phone: z.string().regex(/^09\d{9}$/, {
-    message: "Must be a valid 11-digit PH mobile number (e.g., 09xxxxxxxxx)",
-  }),
-}).superRefine((data, ctx) => {
-  const minSalary = MIN_SALARY_BY_DEPT[data.department] || 12000;
-  if (data.salary < minSalary) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `Minimum salary for ${data.department} is ₱${minSalary.toLocaleString()}`,
-      path: ["salary"],
-    });
-  }
+// 🔒 Helper to ensure a fresh object on every reset
+const getInitialState = (): OnboardFormData => ({
+  first_name: "",
+  middle_name: "",
+  last_name: "",
+  email: "",
+  phone: "+639",
+  employee_id: "Generating...",
+  system_role: "staff",
+  position: "Cleaner",
+  salary: 16000,
+  hire_date: new Date().toISOString().split("T")[0],
 });
 
-type StaffFormValues = z.infer<typeof StaffFormSchema>;
+type SystemRole = keyof typeof ROLE_MAPPING;
 
-const ROLE_TO_DEPT: Record<string, string> = {
-  front_desk: "Front Desk",
-  housekeeping: "Housekeeping",
-  manager: "Management",
-  admin: "Management",
-};
-
-export default function StaffModal({
-  isOpen,
-  onClose,
-  onSuccess,
-  staffToEdit,
-}: StaffModalProps) {
+export default function StaffModal({ isOpen, onClose, onSuccess }: StaffModalProps) {
   const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState<OnboardFormData>(getInitialState());
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    watch,
-    setValue,
-    formState: { errors },
-  } = useForm({
-    resolver: zodResolver(StaffFormSchema),
-    mode: "onChange",
-    defaultValues: {
-      employee_id: "",
-      first_name: "",
-      last_name: "",
-      middle_name: "",
-      email: "",
-      phone: "",
-      position: "Staff",
-      department: "Housekeeping",
-      status: "active",
-      salary: 15000,
-      hire_date: new Date().toISOString().split("T")[0],
-      role: "front_desk",
-    },
-  });
+  const errors = useMemo(() => {
+    const result = onboardSchema.safeParse(formData);
+    if (result.success) return {};
+    return result.error.flatten().fieldErrors;
+  }, [formData]);
 
-  const selectedRole = watch("role");
-  const selectedDepartment = watch("department");
-  const currentSalary = watch("salary") as number;
+  const fetchNextId = async () => {
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("generate_next_employee_id");
+    if (!error) setFormData((prev) => ({ ...prev, employee_id: data }));
+  };
 
-  useEffect(() => {
-    if (selectedRole && !staffToEdit && ROLE_TO_DEPT[selectedRole]) {
-      setValue("department", ROLE_TO_DEPT[selectedRole]);
-    }
-  }, [selectedRole, setValue, staffToEdit]);
-
-  useEffect(() => {
-    if (selectedDepartment && typeof currentSalary === "number") {
-      const minSalary = MIN_SALARY_BY_DEPT[selectedDepartment] || 12000;
-      if (currentSalary < minSalary) {
-        setValue("salary", minSalary);
-      }
-    }
-  }, [selectedDepartment, currentSalary, setValue]);
-
+  // 🔒 Reset form whenever modal opens
   useEffect(() => {
     if (isOpen) {
-      if (staffToEdit) {
-        reset({
-          employee_id: staffToEdit.employee_id,
-          first_name: staffToEdit.first_name,
-          last_name: staffToEdit.last_name,
-          middle_name: staffToEdit.middle_name || "",
-          email: staffToEdit.email,
-          phone: staffToEdit.phone,
-          position: staffToEdit.position,
-          department: staffToEdit.department,
-          status: staffToEdit.status as "active" | "inactive" | "terminated",
-          salary: staffToEdit.salary,
-          hire_date: staffToEdit.hire_date
-            ? new Date(staffToEdit.hire_date).toISOString().split("T")[0]
-            : new Date().toISOString().split("T")[0],
-        });
-      } else {
-        const randomId = `EMP-${Math.floor(1000 + Math.random() * 9000)}`;
-
-        reset({
-          employee_id: randomId,
-          first_name: "",
-          last_name: "",
-          middle_name: "",
-          email: "",
-          phone: "",
-          position: "Staff",
-          department: "Front Desk",
-          status: "active",
-          salary: 15000,
-          hire_date: new Date().toISOString().split("T")[0],
-          role: "front_desk",
-        });
-      }
+      setFormData(getInitialState());
+      fetchNextId();
     }
-  }, [isOpen, staffToEdit, reset]);
+  }, [isOpen]);
 
-  if (!isOpen) return null;
+  const handleRoleChange = (role: string) => {
+    const selectedRole = role as SystemRole;
+    const config = ROLE_MAPPING[selectedRole];
+    setFormData((prev) => ({
+      ...prev,
+      system_role: selectedRole,
+      position: config.positions[0],
+      salary: config.salary,
+    }));
+  };
 
-  const onSubmit = async (data: StaffFormValues) => {
+  const calculatePayrollPreview = () => {
+    const hireDate = new Date(formData.hire_date);
+    const now = new Date();
+    if (hireDate > now) return "0.00";
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const effectiveStart = hireDate > startOfMonth ? hireDate : startOfMonth;
+    const daysWorked = Math.ceil((now.getTime() - effectiveStart.getTime()) / (1000 * 60 * 60 * 24));
+    const estimate = (formData.salary / 22) * Math.min(daysWorked, 22);
+    return estimate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const validation = onboardSchema.safeParse(formData);
+    if (!validation.success) return toast.error("Please fix form errors.");
+
     setLoading(true);
-    const toastId = toast.loading(
-      staffToEdit ? "Updating profile..." : "Inviting & Onboarding...",
-    );
+    const supabase = createClient();
 
     try {
-      let userId = null;
+      const fullName = `${formData.first_name} ${formData.middle_name ? formData.middle_name + " " : ""}${formData.last_name}`;
 
-      if (!staffToEdit) {
-        const inviteRes = await fetch("/api/admin/invite", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: data.email,
-            // Auth still expects a single string for display name
-            fullName: `${data.first_name} ${data.last_name}`.trim(),
-            role: data.role || "front_desk",
-          }),
-        });
-
-        if (!inviteRes.ok) {
-          const err = await inviteRes.json();
-          throw new Error(err.error || "Failed to invite user");
-        }
-
-        const inviteData = await inviteRes.json();
-        userId = inviteData.user_id;
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { role, ...staffData } = data;
-
-      const method = staffToEdit ? "PATCH" : "POST";
-      const body = staffToEdit
-        ? { ...staffData, id: staffToEdit.id }
-        : { ...staffData, user_id: userId };
-
-      const res = await fetch("/api/admin/staff", {
-        method,
+      // Single API call — the server atomically creates:
+      //   1. auth.users (invite email)
+      //   2. public.users profile  ┐ wrapped in one PostgreSQL
+      //   3. staff record          ┘ transaction via RPC
+      const inviteRes = await fetch("/api/admin/invite", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          email:        formData.email,
+          full_name:    fullName,
+          role:         formData.system_role,
+          phone:        formData.phone,
+          employee_id:  formData.employee_id,
+          first_name:   formData.first_name,
+          middle_name:  formData.middle_name,
+          last_name:    formData.last_name,
+          position:     formData.position,
+          department:   formData.system_role === "staff" ? "Operations" : "Management",
+          salary:       formData.salary,
+          hire_date:    formData.hire_date,
+        }),
       });
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to save staff profile");
-      }
+      const inviteData = await inviteRes.json();
+      if (!inviteRes.ok) throw new Error(inviteData.error || "Invitation failed");
 
-      toast.dismiss(toastId);
-      toast.success(
-        staffToEdit
-          ? "Staff member updated!"
-          : "Invitation sent & Profile created!",
-      );
+      toast.success("Talent onboarded and invitation sent!");
+
+      // 🔒 CLEANUP
+      setFormData(getInitialState());
       onSuccess();
       onClose();
-    } catch (error: unknown) {
-      toast.dismiss(toastId);
-      if (error instanceof Error) {
-        toast.error(error.message);
-      } else {
-        toast.error("An unexpected error occurred");
-      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error onboarding talent";
+      toast.error(msg);
+      console.error("Onboarding Error:", msg);
     } finally {
       setLoading(false);
     }
   };
 
-  const inputClass = (hasError: boolean) =>
-    `w-full p-2.5 bg-slate-50 border ${
-      hasError ? "border-red-500" : "border-slate-200"
-    } rounded-lg focus:ring-2 focus:ring-[#0A1A44] outline-none text-sm`;
+  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="bg-[#0A1A44] p-5 text-white flex justify-between items-center shrink-0">
-          <div>
-            <h2 className="text-lg font-bold font-serif">
-              {staffToEdit ? "Edit Staff Member" : "Onboard New Talent"}
-            </h2>
-            {!staffToEdit && (
-              <p className="text-xs text-blue-200 mt-0.5">
-                This will send an email invitation to set a password.
-              </p>
-            )}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-4xl w-full max-w-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+          <div className="flex items-center gap-3">
+            <UserPlus className="w-5 h-5 text-[#0A1A44]" />
+            <h2 className="text-lg font-bold text-[#0A1A44]">Onboard New Talent</h2>
           </div>
-          <button
-            onClick={onClose}
-            className="hover:bg-white/10 p-1 rounded-full transition-colors"
-          >
-            <X className="w-5 h-5" />
+          <button onClick={onClose} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
+            <X className="w-5 h-5 text-slate-400" />
           </button>
         </div>
 
-        <form
-          onSubmit={handleSubmit(onSubmit)}
-          className="p-6 space-y-4 overflow-y-auto custom-scrollbar"
-        >
-          {/* Role Selection */}
-          {!staffToEdit && (
-            <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 mb-2">
-              <div className="flex items-center gap-2 mb-2">
-                <ShieldAlert className="w-4 h-4 text-blue-600" />
-                <label className="text-xs font-bold text-blue-800 uppercase tracking-wide">
-                  System Access Role
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase text-slate-400">Employee ID</label>
+              <div className="p-2.5 bg-slate-100 rounded-xl font-mono text-xs font-bold text-slate-600 border border-slate-200">{formData.employee_id}</div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase text-slate-400">Hire Date <span className="text-red-500">*</span></label>
+              <input type="date" required value={formData.hire_date} onChange={(e) => setFormData({ ...formData, hire_date: e.target.value })} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 ring-blue-500/20" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            {(["first_name", "middle_name", "last_name"] as const).map((key) => (
+              <div key={key} className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-slate-400">
+                  {key.replace("_", " ")} {key !== "middle_name" && <span className="text-red-500">*</span>}
                 </label>
+                <input
+                  placeholder={key.replace("_", " ")}
+                  value={formData[key] || ""}
+                  onChange={(e) => setFormData({ ...formData, [key]: e.target.value })}
+                  className={`w-full p-2.5 bg-slate-50 border rounded-xl text-sm outline-none ${errors[key] ? 'border-red-300 bg-red-50/30' : 'border-slate-200'}`}
+                />
               </div>
-              <select
-                {...register("role")}
-                className="w-full p-2.5 bg-white border border-blue-200 rounded-lg text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none"
-              >
-                <option value="front_desk">
-                  Front Desk (Bookings, Billing, Customers)
-                </option>
-                <option value="manager">
-                  Manager (Reports, Staff, Inventory)
-                </option>
-                <option value="housekeeping">
-                  Housekeeping (Room View Only)
-                </option>
-                <option value="admin">Super Admin (Full Access)</option>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase text-slate-400">Email Address <span className="text-red-500">*</span></label>
+              <input type="email" placeholder="user@example.com" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className={`w-full p-2.5 bg-slate-50 border rounded-xl text-sm outline-none ${errors.email ? 'border-red-300' : 'border-slate-200'}`} />
+              {errors.email && <p className="text-[9px] text-red-500 font-bold italic">{errors.email[0]}</p>}
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase text-slate-400">Phone Number <span className="text-red-500">*</span></label>
+              <input
+                maxLength={13}
+                value={formData.phone}
+                onChange={(e) => e.target.value.startsWith("+639") && setFormData({ ...formData, phone: e.target.value.replace(/[^\d+]/g, '') })}
+                className={`w-full p-2.5 bg-slate-50 border rounded-xl text-sm outline-none ${errors.phone ? 'border-red-300' : 'border-slate-200'}`}
+              />
+              {errors.phone && <p className="text-[9px] text-red-500 font-bold italic">{errors.phone[0]}</p>}
+            </div>
+          </div>
+
+          <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <select value={formData.system_role} onChange={(e) => handleRoleChange(e.target.value)} className="w-full p-2 bg-white border border-blue-200 rounded-lg text-xs font-bold text-slate-700 outline-none">
+                <option value="staff">Staff Access</option>
+                <option value="front_desk">Front Desk Access</option>
+                <option value="manager">Manager Access</option>
+                <option value="admin">Super Admin Access</option>
+              </select>
+              <select value={formData.position} onChange={(e) => setFormData({ ...formData, position: e.target.value })} className="w-full p-2 bg-white border border-blue-200 rounded-lg text-xs font-bold text-slate-700 outline-none">
+                {ROLE_MAPPING[formData.system_role as SystemRole].positions.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
-          )}
-
-          {/* Employee ID */}
-          <div>
-            <label className="flex items-center gap-1 text-xs font-bold text-slate-500 uppercase mb-1">
-              Employee ID
-              {!staffToEdit && <Wand2 className="w-3 h-3 text-purple-500" />}
-            </label>
-            <input
-              {...register("employee_id")}
-              placeholder="EMP-XXXX"
-              className={`${inputClass(
-                !!errors.employee_id,
-              )} bg-slate-100 text-slate-500`}
-              readOnly
-            />
-            {errors.employee_id && (
-              <p className="text-xs text-red-500">
-                {errors.employee_id.message as string}
-              </p>
-            )}
-          </div>
-
-          {/* Names Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
-                First Name
-              </label>
-              <input
-                {...register("first_name", {
-                  onChange: (e) => {
-                    e.target.value = e.target.value.replace(
-                      /[^a-zA-Z\s\-\.\']/g,
-                      "",
-                    );
-                  },
-                })}
-                placeholder="Juan"
-                className={inputClass(!!errors.first_name)}
-              />
-              {errors.first_name && (
-                <p className="text-xs text-red-500">
-                  {errors.first_name.message as string}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                Middle Name
-              </label>
-              <input
-                {...register("middle_name", {
-                  onChange: (e) => {
-                    e.target.value = e.target.value.replace(
-                      /[^a-zA-Z\s\-\.\']/g,
-                      "",
-                    );
-                  },
-                })}
-                placeholder="Rizal"
-                className={inputClass(!!errors.middle_name)}
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
-                Last Name
-              </label>
-              <input
-                {...register("last_name", {
-                  onChange: (e) => {
-                    e.target.value = e.target.value.replace(
-                      /[^a-zA-Z\s\-\.\']/g,
-                      "",
-                    );
-                  },
-                })}
-                placeholder="Dela Cruz"
-                className={inputClass(!!errors.last_name)}
-              />
-              {errors.last_name && (
-                <p className="text-xs text-red-500">
-                  {errors.last_name.message as string}
-                </p>
-              )}
+            <div className="flex flex-col justify-center border-l border-blue-100 pl-4">
+              <div className="text-lg font-black text-[#0A1A44]">₱{formData.salary.toLocaleString()} <span className="text-[8px] text-blue-400 uppercase">/ Mo</span></div>
+              <div className="text-[10px] font-bold text-emerald-600">Est. Earnings: ₱{calculatePayrollPreview()}</div>
             </div>
           </div>
 
-          {/* Email & Phone */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
-                Email
-              </label>
-              <input
-                type="email"
-                {...register("email")}
-                className={inputClass(!!errors.email)}
-              />
-              {errors.email && (
-                <p className="text-xs text-red-500">
-                  {errors.email.message as string}
-                </p>
-              )}
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
-                Phone
-              </label>
-              <input
-                {...register("phone", {
-                  onChange: (e) => {
-                    let val = e.target.value.replace(/[^0-9]/g, "");
-                    if (val.length > 11) val = val.slice(0, 11);
-                    e.target.value = val;
-                  },
-                })}
-                type="tel"
-                maxLength={11}
-                placeholder="09xxxxxxxxx"
-                className={inputClass(!!errors.phone)}
-              />
-              {errors.phone && (
-                <p className="text-xs text-red-500">
-                  {errors.phone.message as string}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Dept & Position */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
-                Department
-              </label>
-              <select
-                {...register("department")}
-                disabled={!staffToEdit}
-                className={`${inputClass(!!errors.department)} ${
-                  !staffToEdit ? "bg-slate-100 text-slate-500" : ""
-                }`}
-              >
-                <option value="Front Desk">Front Desk</option>
-                <option value="Housekeeping">Housekeeping</option>
-                <option value="Maintenance">Maintenance</option>
-                <option value="Management">Management</option>
-                <option value="Security">Security</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
-                Position
-              </label>
-              <input
-                {...register("position")}
-                className={inputClass(!!errors.position)}
-              />
-            </div>
-          </div>
-
-          {/* Status & Salary */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
-                Status
-              </label>
-              <select
-                {...register("status")}
-                className={inputClass(!!errors.status)}
-              >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="terminated">Terminated</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
-                Salary (₱)
-              </label>
-              <input
-                type="number"
-                {...register("salary", {
-                  valueAsNumber: true,
-                })}
-                min={MIN_SALARY_BY_DEPT[selectedDepartment] || 12000}
-                className={inputClass(!!errors.salary)}
-              />
-              {errors.salary && (
-                <p className="text-xs text-red-500 mt-1">
-                  {errors.salary.message as string}
-                </p>
-              )}
-              {!errors.salary && selectedDepartment && (
-                <p className="text-xs text-slate-400 mt-1">
-                  Min: ₱
-                  {MIN_SALARY_BY_DEPT[selectedDepartment]?.toLocaleString() ||
-                    "12,000"}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Date Hired */}
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1 required-label">
-              Date Hired
-            </label>
-            <input
-              type="date"
-              {...register("hire_date")}
-              className={inputClass(!!errors.hire_date)}
-            />
-          </div>
-
-          {/* Actions */}
-          <div className="pt-4 flex gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={onClose}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              className="flex-1 bg-[#0A1A44] text-white"
-              disabled={loading}
-            >
-              {loading && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-              {staffToEdit ? "Save Changes" : "Send Invite & Create"}
-            </Button>
-          </div>
+          <button disabled={loading || Object.keys(errors).length > 0} type="submit" className="w-full py-3.5 bg-[#0A1A44] disabled:bg-slate-300 text-white rounded-xl font-bold shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Complete Registration"}
+          </button>
         </form>
       </div>
     </div>
