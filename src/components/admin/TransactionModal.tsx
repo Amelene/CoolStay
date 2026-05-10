@@ -295,18 +295,29 @@ export default function TransactionModal({
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
               Payment Amount
             </label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
-                ₱
-              </span>
-              <input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="w-full pl-8 p-3 bg-slate-50 border border-slate-200 rounded-lg font-bold text-lg outline-none focus:ring-2 ring-[#0A1A44]"
-                placeholder="0.00"
-              />
-            </div>
+            {prefill ? (
+              <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                <span className="font-black text-xl text-[#0A1A44]">
+                  ₱{Number(amount).toLocaleString()}
+                </span>
+                <span className="text-xs bg-blue-200 px-2 py-1 rounded text-blue-800 font-bold">
+                  LOCKED
+                </span>
+              </div>
+            ) : (
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                  ₱
+                </span>
+                <input
+                  type="number"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="w-full pl-8 p-3 bg-slate-50 border border-slate-200 rounded-lg font-bold text-lg outline-none focus:ring-2 ring-[#0A1A44]"
+                  placeholder="0.00"
+                />
+              </div>
+            )}
           </div>
 
           {/* 3. Method Only (No Refund Type) */}

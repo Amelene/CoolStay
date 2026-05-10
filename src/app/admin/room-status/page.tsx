@@ -37,10 +37,21 @@ export default function RoomStatusDashboard() {
   const [loading, setLoading] = useState(true);
   const [allRooms, setAllRooms] = useState<RoomInventory[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [isReadOnly, setIsReadOnly] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+
+  // Detect staff role from JWT — no DB call needed
+  useEffect(() => {
+    const checkRole = async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      setIsReadOnly(user?.user_metadata?.role === "staff");
+    };
+    checkRole();
+  }, []);
 
   const fetchStatus = async () => {
     setLoading(true);
@@ -366,16 +377,19 @@ export default function RoomStatusDashboard() {
                       </div>
 
                       <div className="w-full mt-1 relative">
-                        {room.status === "occupied" ? (
+                        {room.status === "occupied" || isReadOnly ? (
                           <button
                             onClick={() =>
-                              toast.error(
-                                "Please process check-outs in the Manage Bookings page.",
-                              )
+                              isReadOnly
+                                ? undefined
+                                : toast.error(
+                                    "Please process check-outs in the Manage Bookings page.",
+                                  )
                             }
                             className="w-full flex items-center justify-center gap-1 text-[9px] font-bold uppercase tracking-wider py-1.5 rounded-md bg-slate-100/50 text-slate-400 cursor-not-allowed border border-slate-200/50"
                           >
-                            <Lock className="w-2.5 h-2.5" /> Occupied
+                            <Lock className="w-2.5 h-2.5" />
+                            {isReadOnly ? "View Only" : "Occupied"}
                           </button>
                         ) : (
                           <>

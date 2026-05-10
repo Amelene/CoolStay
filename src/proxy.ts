@@ -1,13 +1,32 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const RESTRICTED_ADMIN_PATHS = {
-  "/admin/inventory": ["admin"],
+// 🔐 RBAC Matrix — lists which roles can access each restricted path.
+// Paths NOT listed here are accessible to ALL internal staff roles.
+// Roles: admin > manager > front_desk > staff
+const RESTRICTED_ADMIN_PATHS: Record<string, string[]> = {
+  // 🔴 Admin only — HR, security, audit logs
   "/admin/staff": ["admin"],
-  "/admin/reports": ["admin"],
   "/admin/security": ["admin"],
-  "/admin/promotions": ["admin"],
   "/admin/activity-logs": ["admin"],
+
+  // 🟡 Admin + Manager — financials & analytics
+  "/admin/inventory": ["admin", "manager"],
+  "/admin/reports": ["admin", "manager"],
+  "/admin/promotions": ["admin", "manager"],
+  "/admin/expenses": ["admin", "manager"],
+
+  // 🟢 Admin + Manager + Front Desk — guest-facing operations
+  "/admin/bookings": ["admin", "manager", "front_desk"],
+  "/admin/billing": ["admin", "manager", "front_desk"],
+  "/admin/customers": ["admin", "manager", "front_desk"],
+  "/admin/inquiries": ["admin", "manager", "front_desk"],
+  "/admin/feedback": ["admin", "manager", "front_desk"],
+  "/admin/rooms": ["admin", "manager", "front_desk"],
+
+  // 🔵 All staff — /admin/dashboard, /admin/tasks,
+  //    /admin/room-status, /admin/activities are NOT listed
+  //    here, meaning all STAFF_ROLES can access them freely.
 };
 
 const PROTECTED_PATHS = [
@@ -98,20 +117,29 @@ export async function proxy(request: NextRequest) {
       return createRedirect("/auth/verify-2fa", params);
     }
 
-    // --- C. ROLE ENFORCEMENT (New Logic) ---
-    // Fetch role once for all checks
+    // RLS SELECT policy on public.users is USING(true) — all rows readable.
+    // Look up the role by auth_user_id (the FK to auth.users).
     const { data: dbUser } = await supabase
       .from("users")
       .select("role")
-      .eq("id", user.id)
+      .eq("auth_user_id", user.id)
       .single();
 
     const userRole = dbUser?.role || "user";
-    const isAdmin = userRole === "admin" || userRole === "front_desk";
+    // All internal roles can access the admin area.
+    // "user" is reserved for regular guests/customers.
+    const STAFF_ROLES = ["admin", "manager", "front_desk", "staff"];
+    const isAdmin = STAFF_ROLES.includes(userRole);
 
-    // 1. ADMIN TRYING TO ACCESS USER DASHBOARD -> SEND TO ADMIN DASHBOARD
+    // 1. INTERNAL STAFF TRYING TO ACCESS USER DASHBOARD -> SEND TO THEIR HOME
     if (path.startsWith("/dashboard") && isAdmin) {
-      return createRedirect("/admin/dashboard");
+      const staffHome = userRole === "staff" ? "/admin/tasks" : "/admin/dashboard";
+      return createRedirect(staffHome);
+    }
+
+    // 2. STAFF ROLE TRYING TO ACCESS ADMIN DASHBOARD -> SEND TO TASKS
+    if (path === "/admin/dashboard" && userRole === "staff") {
+      return createRedirect("/admin/tasks");
     }
 
     // 2. USER TRYING TO ACCESS ADMIN AREA -> SEND TO USER DASHBOARD

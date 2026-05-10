@@ -1,5 +1,6 @@
 "use client";
 
+import React, { useState } from "react";
 import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/Button";
 import Image from "next/image";
@@ -11,10 +12,9 @@ import {
   Baby,
   Milk,
   Hash,
-  AlertCircle, // Added Alert Icon
+  AlertCircle,
 } from "lucide-react";
-import { PDFDownloadLink } from "@react-pdf/renderer";
-import BookingReceipt from "@/components/pdf/BookingReceipt";
+import GuestReceiptModal from "@/components/GuestReceiptModal";
 
 // --- EXPORTED TYPES ---
 export interface RoomType {
@@ -64,6 +64,7 @@ export default function BookingCard({
   hasReviewed,
   user,
 }: BookingCardProps) {
+  const [showReceipt, setShowReceipt] = useState(false);
   const room = booking.room_types;
   const checkIn = new Date(booking.check_in_date).toLocaleDateString("en-US", {
     month: "short",
@@ -317,25 +318,13 @@ export default function BookingCard({
               )}
 
               {totalPaid > 0 && (
-                <PDFDownloadLink
-                  document={
-                    <BookingReceipt
-                      booking={receiptData}
-                      payments={validPayments}
-                    />
-                  }
-                  fileName={`Receipt_${booking.id.substring(0, 8)}.pdf`}
-                  className="flex items-center justify-center h-7 w-7 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-                  title="Download Receipt"
+                <button
+                  onClick={() => setShowReceipt(true)}
+                  className="flex items-center justify-center h-7 w-7 text-slate-500 hover:text-[#0A1A44] hover:bg-slate-100 rounded-lg transition-colors"
+                  title="View & Download Receipt"
                 >
-                  {({ loading }) =>
-                    loading ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Download className="w-3.5 h-3.5" />
-                    )
-                  }
-                </PDFDownloadLink>
+                  <Download className="w-3.5 h-3.5" />
+                </button>
               )}
 
               {canReview && (
@@ -360,6 +349,14 @@ export default function BookingCard({
           </div>
         </div>
       </div>
+
+      {/* Receipt Preview Modal */}
+      <GuestReceiptModal
+        isOpen={showReceipt}
+        onClose={() => setShowReceipt(false)}
+        booking={showReceipt ? { ...booking, users: { full_name: user?.user_metadata?.full_name || "Guest", email: user?.email || "", phone: user?.user_metadata?.phone || "" } } : null}
+        payments={validPayments}
+      />
     </div>
   );
 }

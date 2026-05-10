@@ -1,78 +1,83 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { createClient as createServerClient } from "@/lib/supabase/server";
-import { authorizeAdmin } from "@/lib/admin-auth";
+import { getURL } from "@/lib/utils";
 
-// Create a separate ADMIN client that bypasses RLS
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
-
-export async function POST(request: Request) {
+export async function POST(req: Request) {
   try {
-    // 1. Security Check: Ensure requester is an actual Admin
-    const supabase = await createServerClient();
-    const { error: authError, user } = await authorizeAdmin(supabase);
-    if (authError) return authError;
+    const {
+      email, full_name, role, phone,
+      employee_id, first_name, middle_name, last_name,
+      position, department, salary, hire_date,
+    } = await req.json();
 
-    const { data: requesterProfile } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", user.id)
-      .single();
+    let baseUrl = getURL();
+    if (baseUrl.endsWith("/")) baseUrl = baseUrl.slice(0, -1);
 
-    if (requesterProfile?.role !== "admin") {
-      return NextResponse.json(
-        { error: "Forbidden: Only Admins can invite staff" },
-        { status: 403 },
-      );
-    }
+    // 🔑 Service role — bypasses RLS for all DB operations.
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
-    // 2. Process Request
-    const body = await request.json();
-    const { email, role, fullName } = body;
-
-    if (!email || !role) {
-      return NextResponse.json(
-        { error: "Email and Role are required" },
-        { status: 400 },
-      );
-    }
-
-    // 3. Send Invite via Supabase Auth
-    const { data: inviteData, error: inviteError } =
+    // Step 1: Create auth.users + send invite email.
+    // This MUST happen before the DB writes since we need the auth UUID.
+    const { data, error: inviteError } =
       await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-        data: {
-          role: role,
-          full_name: fullName,
-        },
-        // ✅ FIX: Redirect DIRECTLY to the page (Client-side will handle the #hash token)
-        redirectTo: `${new URL(request.url).origin}/update-password`,
+        data: { full_name, role },
+        redirectTo: `${baseUrl}/update-password`,
       });
 
-    if (inviteError) throw inviteError;
-
-    // 4. Update the public.users table immediately
-    if (inviteData.user) {
-      await supabaseAdmin
-        .from("users")
-        .update({
-          role: role,
-          full_name: fullName,
-        })
-        .eq("id", inviteData.user.id);
+    if (inviteError) {
+      if (inviteError.status === 429) {
+        return NextResponse.json(
+          { error: "Email rate limit exceeded. Please try again in an hour." },
+          { status: 429 }
+        );
+      }
+      console.error("Invite Error:", inviteError.message);
+      return NextResponse.json({ error: inviteError.message }, { status: 400 });
     }
 
-    return NextResponse.json({
-      success: true,
-      message: "Invitation sent",
-      user_id: inviteData.user?.id,
-    });
+    const authUserId = data.user.id;
+
+    // Step 2: Atomically create public.users + staff in one transaction.
+    // onboard_staff_member() is a SECURITY DEFINER RPC that wraps both
+    // inserts in a single PostgreSQL transaction — if either fails,
+    // both roll back. No orphaned rows possible.
+    const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc(
+      "onboard_staff_member",
+      {
+        p_auth_user_id: authUserId,
+        p_full_name:    full_name,
+        p_email:        email,
+        p_phone:        phone ?? null,
+        p_role:         role,
+        p_employee_id:  employee_id,
+        p_first_name:   first_name,
+        p_middle_name:  middle_name ?? null,
+        p_last_name:    last_name,
+        p_position:     position,
+        p_department:   department,
+        p_salary:       salary,
+        p_hire_date:    hire_date,
+      }
+    );
+
+    if (rpcError) {
+      console.error("Onboard RPC Error:", rpcError.message);
+      // Auth user was already created — note it so admin knows
+      return NextResponse.json(
+        {
+          error: `Invite sent but DB setup failed: ${rpcError.message}. Auth user ID: ${authUserId}`,
+        },
+        { status: 500 }
+      );
+    }
+
+    // rpcResult = public.users.id (returned by the RPC function)
+    return NextResponse.json({ user_id: rpcResult, auth_user_id: authUserId });
   } catch (error: unknown) {
-    let message = "Internal Server Error";
-    if (error instanceof Error) message = error.message;
-    console.error("Invite Error:", error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    const msg = error instanceof Error ? error.message : "Internal Error";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

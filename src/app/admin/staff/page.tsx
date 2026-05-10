@@ -14,7 +14,6 @@ import {
   Ban,
   Users,
   Building2,
-  Wallet,
   CalendarDays,
   UserCircle,
   ChevronLeft,
@@ -265,10 +264,6 @@ export default function StaffManagementPage() {
   const totalStaff = staffList.length;
   const activeStaff = staffList.filter((s) => s.status === "active").length;
   const totalDepartments = new Set(staffList.map((s) => s.department)).size;
-  const monthlyPayroll = staffList.reduce(
-    (acc, curr) => acc + (curr.salary || 0),
-    0,
-  );
   const todayStr = formatYMD(new Date());
 
   return (
@@ -293,21 +288,19 @@ export default function StaffManagementPage() {
             <div className="flex bg-white/60 p-1 rounded-xl shadow-sm border border-slate-200">
               <button
                 onClick={() => setActiveTab("directory")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-                  activeTab === "directory"
-                    ? "bg-[#0A1A44] text-white shadow-md"
-                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
-                }`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === "directory"
+                  ? "bg-[#0A1A44] text-white shadow-md"
+                  : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                  }`}
               >
                 <UserCircle className="w-4 h-4" /> Directory
               </button>
               <button
                 onClick={() => setActiveTab("schedule")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-                  activeTab === "schedule"
-                    ? "bg-[#0A1A44] text-white shadow-md"
-                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
-                }`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === "schedule"
+                  ? "bg-[#0A1A44] text-white shadow-md"
+                  : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                  }`}
               >
                 <CalendarDays className="w-4 h-4" /> Schedule
               </button>
@@ -341,12 +334,6 @@ export default function StaffManagementPage() {
               value={totalDepartments}
               icon={Building2}
               color="bg-purple-500"
-            />
-            <StatBadge
-              label="Est. Payroll"
-              value={`₱${(monthlyPayroll / 1000).toFixed(1)}k`}
-              icon={Wallet}
-              color="bg-orange-500"
             />
           </div>
         )}
@@ -570,7 +557,6 @@ export default function StaffManagementPage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSuccess={() => fetchStaff()}
-        staffToEdit={staffToEdit}
       />
     </div>
   );
