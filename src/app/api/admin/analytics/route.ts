@@ -115,6 +115,21 @@ export async function GET(request: Request) {
     .order("generated_at", { ascending: false })
     .limit(5);
 
+  // 5. Payroll — exact sum of active staff salaries
+  const { data: staffSalaries } = await supabase
+    .from("staff")
+    .select("salary")
+    .eq("status", "active");
+
+  // 6. Current calendar month revenue (always live, ignores the range filter)
+  const nowDate = new Date();
+  const thisMonthStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), 1).toISOString();
+  const { data: thisMonthPayments } = await supabase
+    .from("payments")
+    .select("amount")
+    .gte("created_at", thisMonthStart)
+    .in("status", ["paid", "completed"]);
+
   const { count: activeGuests } = await supabase
     .from("bookings")
     .select("*", { count: "exact", head: true })
@@ -142,13 +157,29 @@ export async function GET(request: Request) {
     total: revenueData[i],
   }));
 
-  // --- PROCESS EXPENSES & NET PROFIT --- 🔒 NEW
+  // --- PROCESS EXPENSES & NET PROFIT ---
   let totalExpenses = 0;
   expenses?.forEach((e) => {
     totalExpenses += Number(e.amount);
   });
 
-  const netProfit = totalRevenue - totalExpenses;
+  // --- PAYROLL ---
+  const totalPayroll = (staffSalaries || []).reduce(
+    (sum, s) => sum + Number(s.salary || 0),
+    0,
+  );
+
+  // True net profit: revenue minus ALL costs (operational expenses + payroll)
+  const netProfit = totalRevenue - totalExpenses - totalPayroll;
+
+  // --- CURRENT MONTH REVENUE ---
+  const currentMonthRevenue = (thisMonthPayments || []).reduce(
+    (sum, p) => sum + Number(p.amount || 0),
+    0,
+  );
+  const currentMonthLabel = new Date().toLocaleDateString("en-US", {
+    month: "long", year: "numeric",
+  });
 
   // --- PROCESS ROOM POPULARITY ---
   const roomCounts: Record<string, number> = {};
@@ -179,9 +210,12 @@ export async function GET(request: Request) {
   // --- RETURN UPDATED KPI ---
   return NextResponse.json({
     kpi: {
-      totalRevenue, // Gross Cash-in
-      totalExpenses, // 🔒 NEW: Operational costs
-      netProfit, // 🔒 NEW: True bottom line
+      totalRevenue,
+      totalExpenses,
+      netProfit,
+      totalPayroll,
+      currentMonthRevenue,
+      currentMonthLabel,
       totalBookings: totalBookingsCount,
       activeGuests: activeGuests || 0,
       avgRating: 4.8,
