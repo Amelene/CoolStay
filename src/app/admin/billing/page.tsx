@@ -1,17 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import TransactionModal from "@/components/admin/TransactionModal";
 import {
+  ArrowDownLeft,
+  ArrowUpRight,
   CheckCircle2,
   Clock,
-  Plus,
-  ArrowUpRight,
-  ArrowDownLeft,
-  Loader2,
   Eye,
   FileText,
+  Loader2,
+  Plus,
 } from "lucide-react";
-import TransactionModal from "@/components/admin/TransactionModal";
+import { useEffect, useState } from "react";
 // Removed ReceiptModal import as we are consolidating to PaymentProofModal
 import PaymentProofModal from "@/components/admin/PaymentProofModal";
 
