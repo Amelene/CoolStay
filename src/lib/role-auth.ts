@@ -1,18 +1,16 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { ROLES, UserRole } from "./role_config";
+import { ROLES, UserRole, ALL_STAFF_ROLES } from "./role_config";
 
 /**
- * Flexible role-based authorization
- * @param supabase - Supabase client
- * @param allowedRoles - Array of roles that can access the resource
- * @returns Authorization result with error or user
+ * Flexible role-based authorization.
+ * Always looks up the role via auth_user_id (the FK to auth.users).
  */
 export async function authorizeRole(
   supabase: SupabaseClient,
   allowedRoles: UserRole[]
 ) {
-  // 1. Get User
+  // 1. Get authenticated user from session
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -25,7 +23,7 @@ export async function authorizeRole(
     };
   }
 
-  // 2. 🚨 SECURITY CHECK: Enforce MFA (AAL2)
+  // 2. MFA enforcement — block aal1 users that have aal2 enrolled
   const { data: mfaData, error: mfaError } =
     await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
 
@@ -40,7 +38,6 @@ export async function authorizeRole(
     };
   }
 
-  // If the user *can* do MFA (nextLevel === 'aal2') but *hasn't* (currentLevel === 'aal1'), BLOCK THEM.
   if (
     mfaData &&
     mfaData.currentLevel === "aal1" &&
@@ -56,11 +53,11 @@ export async function authorizeRole(
     };
   }
 
-  // 3. Check User Role
+  // 3. Look up role via auth_user_id (NOT the table's own auto-generated id)
   const { data: userData, error: userError } = await supabase
     .from("users")
     .select("role")
-    .eq("id", user.id)
+    .eq("auth_user_id", user.id)
     .single();
 
   if (userError || !userData) {
@@ -74,7 +71,7 @@ export async function authorizeRole(
     };
   }
 
-  // 4. Verify Role Access
+  // 4. Check role is in the allowed list
   if (!allowedRoles.includes(userData.role as UserRole)) {
     return {
       error: NextResponse.json(
@@ -86,19 +83,25 @@ export async function authorizeRole(
     };
   }
 
-  return { error: null, user, role: userData.role };
+  return { error: null, user, role: userData.role as UserRole };
 }
 
-/**
- * Admin-only authorization (backward compatible)
- */
+/** Admin-only */
 export async function authorizeAdminOnly(supabase: SupabaseClient) {
   return authorizeRole(supabase, [ROLES.ADMIN]);
 }
 
-/**
- * Admin and Front Desk authorization
- */
+/** Admin + Manager */
+export async function authorizeAdminOrManager(supabase: SupabaseClient) {
+  return authorizeRole(supabase, [ROLES.ADMIN, ROLES.MANAGER]);
+}
+
+/** Admin + Manager + Front Desk */
 export async function authorizeAdminOrFrontDesk(supabase: SupabaseClient) {
-  return authorizeRole(supabase, [ROLES.ADMIN, ROLES.FRONT_DESK]);
+  return authorizeRole(supabase, [ROLES.ADMIN, ROLES.MANAGER, ROLES.FRONT_DESK]);
+}
+
+/** Any authenticated staff member (admin, manager, front_desk, staff) */
+export async function authorizeAnyStaff(supabase: SupabaseClient) {
+  return authorizeRole(supabase, ALL_STAFF_ROLES);
 }
