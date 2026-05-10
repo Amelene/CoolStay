@@ -25,9 +25,21 @@ export default function ActivityManagementPage() {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [isReadOnly, setIsReadOnly] = useState(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activityToEdit, setActivityToEdit] = useState<Activity | null>(null);
+
+  // Detect staff role from JWT metadata (no extra DB call needed)
+  useEffect(() => {
+    const checkRole = async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      const role = user?.user_metadata?.role;
+      setIsReadOnly(role === "staff");
+    };
+    checkRole();
+  }, []);
 
   const handleRefresh = () => {
     setLoading(true);
@@ -98,11 +110,15 @@ export default function ActivityManagementPage() {
             Activity Management
           </h1>
           <p className="text-gray-500 text-sm">
-            Manage water activities, spa services, and dining experiences
+            {isReadOnly
+              ? "View water activities, spa services, and dining experiences"
+              : "Manage water activities, spa services, and dining experiences"}
           </p>
         </div>
 
-        <div className="flex gap-3 bg-white p-1.5 rounded-full shadow-sm border border-blue-100">
+        {/* Only show action buttons for non-staff roles */}
+        {!isReadOnly && (
+          <div className="flex gap-3 bg-white p-1.5 rounded-full shadow-sm border border-blue-100">
           <button
             className="px-6 py-2 bg-[#0A1A44] text-white text-xs font-bold rounded-full hover:bg-blue-900 transition-colors shadow-md"
             onClick={openAddModal}
@@ -133,7 +149,8 @@ export default function ActivityManagementPage() {
           >
             DELETE
           </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Grid */}
@@ -146,11 +163,12 @@ export default function ActivityManagementPage() {
           {activities.map((activity) => (
             <div
               key={activity.id}
-              onClick={() =>
+              onClick={() => {
+                if (isReadOnly) return; // staff cannot select/edit
                 setSelectedActivityId(
                   activity.id === selectedActivityId ? null : activity.id
-                )
-              }
+                );
+              }}
               className={`
                 relative group cursor-pointer overflow-hidden rounded-4xl transition-all duration-300 border-2
                 ${
@@ -225,18 +243,20 @@ export default function ActivityManagementPage() {
             </div>
           ))}
 
-          {/* Add New Placeholder */}
-          <div
-            onClick={openAddModal}
-            className="border-2 border-dashed border-blue-200 rounded-4xl flex flex-col items-center justify-center h-[300px] text-blue-300 cursor-pointer hover:bg-blue-50/50 hover:border-blue-300 transition-all group"
-          >
-            <div className="h-16 w-16 bg-blue-50 rounded-full flex items-center justify-center text-3xl mb-4 group-hover:scale-110 transition-transform text-blue-200">
-              +
+          {/* Add placeholder — hidden for staff */}
+          {!isReadOnly && (
+            <div
+              onClick={openAddModal}
+              className="border-2 border-dashed border-blue-200 rounded-4xl flex flex-col items-center justify-center h-[300px] text-blue-300 cursor-pointer hover:bg-blue-50/50 hover:border-blue-300 transition-all group"
+            >
+              <div className="h-16 w-16 bg-blue-50 rounded-full flex items-center justify-center text-3xl mb-4 group-hover:scale-110 transition-transform text-blue-200">
+                +
+              </div>
+              <span className="font-bold uppercase tracking-widest text-sm">
+                Add New Activity
+              </span>
             </div>
-            <span className="font-bold uppercase tracking-widest text-sm">
-              Add New Activity
-            </span>
-          </div>
+          )}
         </div>
       )}
 

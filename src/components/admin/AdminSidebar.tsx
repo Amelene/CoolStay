@@ -6,6 +6,7 @@ import {
   BarChart3,
   BedDouble,
   CalendarCheck,
+  CalendarDays,
   ClipboardList,
   FileText,
   History,
@@ -19,7 +20,7 @@ import {
   Megaphone,
   Receipt,
   KanbanSquare,
-  DoorOpen, // <-- 🔒 NEW: Imported DoorOpen icon
+  DoorOpen,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -63,6 +64,7 @@ const menuGroups = [
       { name: "Customer Management", href: "/admin/customers", icon: UserCog },
       { name: "Staff Management", href: "/admin/staff", icon: IdCard },
       { name: "Staff Tasks", href: "/admin/tasks", icon: KanbanSquare },
+      { name: "My Schedule", href: "/admin/schedule", icon: CalendarDays },
       {
         name: "Guest Engagement",
         href: "/admin/feedback",
@@ -103,10 +105,10 @@ export default function AdminSidebar() {
         data: { user },
       } = await supabase.auth.getUser();
       if (user) {
-        const { data } = await supabase
+      const { data } = await supabase
           .from("users")
           .select("role")
-          .eq("id", user.id)
+          .eq("auth_user_id", user.id)  // use FK column, not table's own PK
           .single();
         setUserRole(data?.role || ROLES.USER);
       }

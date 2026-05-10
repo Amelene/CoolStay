@@ -34,6 +34,16 @@ export default function TaskBoardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isStaff, setIsStaff] = useState(false);
+
+  useEffect(() => {
+    // Detect role from JWT metadata — no DB call needed
+    import("@/lib/supabase/client").then(({ createClient }) => {
+      createClient().auth.getUser().then(({ data: { user } }) => {
+        setIsStaff(user?.user_metadata?.role === "staff");
+      });
+    });
+  }, []);
 
   const fetchTasks = async () => {
     try {
@@ -89,18 +99,23 @@ export default function TaskBoardPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-serif font-bold text-[#0A1A44]">
-            Task Board
+            {isStaff ? "My Tasks" : "Task Board"}
           </h1>
           <p className="text-slate-500 text-sm">
-            Assign and track operational duties for your staff.
+            {isStaff
+              ? "View and update the status of tasks assigned to you."
+              : "Assign and track operational duties for your staff."}
           </p>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-[#0A1A44] hover:bg-blue-900 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md flex items-center gap-2 active:scale-95 transition-all"
-        >
-          <Plus className="w-4 h-4" /> Assign Task
-        </button>
+        {/* Assign Task button — hidden for operations staff */}
+        {!isStaff && (
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="bg-[#0A1A44] hover:bg-blue-900 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md flex items-center gap-2 active:scale-95 transition-all"
+          >
+            <Plus className="w-4 h-4" /> Assign Task
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -172,11 +187,14 @@ export default function TaskBoardPage() {
         </div>
       )}
 
-      <AddTaskModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSuccess={fetchTasks}
-      />
+      {/* AddTaskModal — only rendered for non-staff */}
+      {!isStaff && (
+        <AddTaskModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onSuccess={fetchTasks}
+        />
+      )}
     </div>
   );
 }
