@@ -1,106 +1,143 @@
-import { authorizeAdmin } from "@/lib/admin-auth";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { authorizeRole } from "@/lib/role-auth";
+import { ROLES, ALL_STAFF_ROLES } from "@/lib/role_config";
+
+/** Service-role client — bypasses RLS for staff lookups and notification inserts. */
+const getAdmin = () =>
+  createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+const SHIFT_LABELS: Record<string, string> = {
+  morning: "Morning (6AM–2PM)",
+  mid:     "Mid (2PM–10PM)",
+  night:   "Night (10PM–6AM)",
+};
 
 export async function GET(req: Request) {
   try {
     const supabase = await createClient();
-    const { error: authError } = await authorizeAdmin(supabase);
+    const { error: authError } = await authorizeRole(supabase, ALL_STAFF_ROLES);
     if (authError) return authError;
 
     const { searchParams } = new URL(req.url);
     const start = searchParams.get("start");
-    const end = searchParams.get("end");
+    const end   = searchParams.get("end");
 
-    let query = supabase.from("shifts").select("*");
-
-    // If a date range is provided, filter by it
+    const admin = getAdmin();
+    let query = admin.from("shifts").select("*");
     if (start && end) {
-      query = query.gte("shift_date", start).lte("shift_date", end);
+      query = query.gte("shift_date", start).lte("shift_date", end) as typeof query;
     }
 
     const { data, error } = await query;
     if (error) throw error;
-
     return NextResponse.json(data);
   } catch (error: unknown) {
-    // Safely log the unknown error type
-    console.error(
-      "Shifts GET Error:",
-      error instanceof Error ? error.message : "Unknown error",
-    );
-    return NextResponse.json(
-      { error: "Failed to fetch shifts" },
-      { status: 500 },
-    );
+    console.error("Shifts GET Error:", error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: "Failed to fetch shifts" }, { status: 500 });
   }
 }
 
 export async function POST(req: Request) {
   try {
     const supabase = await createClient();
-    const { error: authError } = await authorizeAdmin(supabase);
+    // Only admin / manager / front_desk can assign shifts
+    const { error: authError } = await authorizeRole(supabase, [
+      ROLES.ADMIN, ROLES.MANAGER, ROLES.FRONT_DESK,
+    ]);
     if (authError) return authError;
 
     const body = await req.json();
     const { staff_id, shift_date, shift_type } = body;
 
     if (!staff_id || !shift_date) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // 1. CLEAR: Prevent duplicates by deleting any existing shift for this staff on this date
-    await supabase.from("shifts").delete().match({ staff_id, shift_date });
+    const admin = getAdmin();
 
-    // 2. OFF DAY: If they selected "off", we leave it deleted and return early
+    // Clear any existing shift for this staff on this date
+    await admin.from("shifts").delete().match({ staff_id, shift_date });
+
     if (shift_type === "off" || !shift_type) {
+      // Notify staff that their shift was removed
+      await notifyStaff(admin, staff_id, shift_date, null);
       return NextResponse.json({ success: true, message: "Shift cleared" });
     }
 
-    // 3. TIMES: Auto-assign standard operating hours based on the shift type
-    let start_time = "09:00:00";
-    let end_time = "17:00:00";
+    // Standard shift times
+    const times: Record<string, { start: string; end: string }> = {
+      morning: { start: "06:00:00", end: "14:00:00" },
+      mid:     { start: "14:00:00", end: "22:00:00" },
+      night:   { start: "22:00:00", end: "06:00:00" },
+    };
+    const { start: start_time, end: end_time } = times[shift_type] ?? { start: "09:00:00", end: "17:00:00" };
 
-    if (shift_type === "morning") {
-      start_time = "06:00:00";
-      end_time = "14:00:00";
-    } else if (shift_type === "mid") {
-      start_time = "14:00:00";
-      end_time = "22:00:00";
-    } else if (shift_type === "night") {
-      start_time = "22:00:00";
-      end_time = "06:00:00"; // Note: Spans past midnight, but time column holds it safely
-    }
-
-    // 4. INSERT: Save the new shift
-    const { data, error } = await supabase
+    const { data, error } = await admin
       .from("shifts")
-      .insert({
-        staff_id,
-        shift_date,
-        shift_type,
-        start_time,
-        end_time,
-        status: "scheduled",
-      })
+      .insert({ staff_id, shift_date, shift_type, start_time, end_time, status: "scheduled" })
       .select()
       .single();
 
     if (error) throw error;
 
+    // Notify the staff member about their new/updated shift
+    await notifyStaff(admin, staff_id, shift_date, shift_type);
+
     return NextResponse.json({ success: true, data });
   } catch (error: unknown) {
-    // Safely log the unknown error type
-    console.error(
-      "Shifts POST Error:",
-      error instanceof Error ? error.message : "Unknown error",
-    );
-    return NextResponse.json(
-      { error: "Failed to update shift" },
-      { status: 500 },
-    );
+    console.error("Shifts POST Error:", error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: "Failed to update shift" }, { status: 500 });
+  }
+}
+
+/** Resolves staff_id → auth_user_id and inserts a shift notification. */
+async function notifyStaff(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  admin: any,
+  staff_id: number,
+  shift_date: string,
+  shift_type: string | null
+) {
+  try {
+    const { data: staffRow } = await admin
+      .from("staff")
+      .select("user_id, first_name")
+      .eq("id", Number(staff_id))
+      .single();
+
+    if (!staffRow?.user_id) return;
+
+    const { data: profile } = await admin
+      .from("users")
+      .select("auth_user_id")
+      .eq("id", staffRow.user_id)
+      .single();
+
+    if (!profile?.auth_user_id) return;
+
+    const dateLabel = new Date(shift_date + "T00:00:00").toLocaleDateString("en-US", {
+      weekday: "short", month: "short", day: "numeric",
+    });
+
+    const title   = shift_type ? "Shift Scheduled" : "Shift Removed";
+    const message = shift_type
+      ? `${SHIFT_LABELS[shift_type] ?? shift_type} on ${dateLabel}`
+      : `Your shift on ${dateLabel} has been removed`;
+
+    await admin.from("notifications").insert({
+      title,
+      message,
+      type: "shift",
+      user_id: profile.auth_user_id,
+      is_read: false,
+    });
+  } catch (err) {
+    // Non-critical — don't fail the whole request if notification fails
+    console.warn("Shift notification failed:", err);
   }
 }
