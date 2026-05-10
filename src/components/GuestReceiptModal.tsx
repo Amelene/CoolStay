@@ -35,8 +35,10 @@ export default function GuestReceiptModal({
   const latestPayment = payments[payments.length - 1];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
-      <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm overflow-y-auto">
+      {/* Inner wrapper: min-h-full + padding keeps modal off navbar & footer */}
+      <div className="min-h-full flex items-center justify-center p-4 py-24">
+      <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl flex flex-col">
 
         {/* Header */}
         <div className="bg-[#0A1A44] px-6 py-4 text-white flex justify-between items-center shrink-0">
@@ -187,6 +189,7 @@ export default function GuestReceiptModal({
             }
           </PDFDownloadLink>
         </div>
+      </div>
       </div>
     </div>
   );
