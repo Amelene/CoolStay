@@ -43,7 +43,7 @@ export const ROUTE_PERMISSIONS: Record<string, UserRole[]> = {
   // 🔵 All internal staff — operational pages
   "/admin/tasks":       [...ALL_STAFF_ROLES],
   "/admin/room-status": [...ALL_STAFF_ROLES],
-  "/admin/schedule":    [...ALL_STAFF_ROLES], // personal schedule view
+  "/admin/schedule":    [ROLES.STAFF], // personal schedule — staff only
 };
 
 export const hasAccess = (path: string, role: string): boolean => {
