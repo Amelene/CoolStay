@@ -112,6 +112,59 @@ export default function InventoryPage() {
     }
   };
 
+  const handleDownloadCurrentView = async () => {
+    setIsGenerating(true);
+    const toastId = toast.loading("Building PDF from current view...");
+    try {
+      // Build human-readable filter label for the PDF header
+      const parts: string[] = [];
+      if (selectedCategory !== "All") parts.push(`Category: ${selectedCategory}`);
+      if (search) parts.push(`Search: "${search}"`);
+      const sortLabels: Record<string, string> = {
+        "name-asc": "Name A→Z",
+        "name-desc": "Name Z→A",
+        "stock-asc": "Stock Low→High",
+        "stock-desc": "Stock High→Low",
+      };
+      if (sortBy !== "name-asc") parts.push(`Sort: ${sortLabels[sortBy] ?? sortBy}`);
+
+      const lowStockCount = processedItems.filter(
+        (i) => i.current_stock <= i.minimum_stock
+      ).length;
+
+      const reportData: CurrentStockReportData = {
+        generatedAt: new Date().toLocaleString("en-US", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        generatedBy: "Admin (Filtered View)",
+        filterLabel: parts.length > 0 ? parts.join(" • ") : undefined,
+        summary: { totalItems: processedItems.length, lowStockCount },
+        items: processedItems.map((item) => ({
+          item_name: item.item_name,
+          category: item.category,
+          current_stock: item.current_stock,
+          minimum_stock: item.minimum_stock,
+          unit: item.unit,
+        })),
+      };
+
+      const blob = await pdf(<CurrentStockReport data={reportData} />).toBlob();
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const suffix = selectedCategory !== "All" ? `_${selectedCategory.replace(/\s+/g, "_")}` : "";
+      saveAs(blob, `Stock_View${suffix}_${dateStr}.pdf`);
+      toast.success("PDF downloaded!", { id: toastId });
+    } catch (error) {
+      console.error(error);
+      toast.error("Error generating PDF", { id: toastId });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleDownloadReport = async (
     content: string,
     id: string,
@@ -319,19 +372,38 @@ export default function InventoryPage() {
                 </div>
               </div>
 
-              {/* SNAPSHOT BUTTON */}
-              <button
-                onClick={handleGenerateReport}
-                disabled={isGenerating}
-                className="w-full lg:w-auto bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 shrink-0"
-              >
-                {isGenerating ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <FileText className="w-4 h-4" />
-                )}
-                Save Snapshot
-              </button>
+              {/* ACTION BUTTONS */}
+              <div className="flex gap-2 shrink-0 w-full lg:w-auto">
+                {/* Download Current View — reflects active filters */}
+                <button
+                  onClick={handleDownloadCurrentView}
+                  disabled={isGenerating || processedItems.length === 0}
+                  title="Download a PDF of the currently filtered view"
+                  className="flex-1 lg:flex-none bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all"
+                >
+                  {isGenerating ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  Download View ({processedItems.length})
+                </button>
+
+                {/* Save Snapshot — always saves ALL items to DB */}
+                <button
+                  onClick={handleGenerateReport}
+                  disabled={isGenerating}
+                  title="Save a full snapshot of all inventory to the Reports tab"
+                  className="flex-1 lg:flex-none bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 shrink-0"
+                >
+                  {isGenerating ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <FileText className="w-4 h-4" />
+                  )}
+                  Save Snapshot
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
