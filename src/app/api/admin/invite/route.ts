@@ -1,6 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { getURL } from "@/lib/utils";
 
 export async function POST(req: Request) {
   try {
@@ -10,10 +8,15 @@ export async function POST(req: Request) {
       position, department, salary, hire_date,
     } = await req.json();
 
-    let baseUrl = getURL();
-    if (baseUrl.endsWith("/")) baseUrl = baseUrl.slice(0, -1);
+    // Derive the site URL from the incoming request so the invite email
+    // always contains the real production URL, not localhost.
+    const origin = req.headers.get("origin");
+    const host   = req.headers.get("host") ?? "";
+    const proto  = req.headers.get("x-forwarded-proto") ?? "https";
+    const baseUrl = origin ?? `${proto}://${host}`;
 
     // 🔑 Service role — bypasses RLS for all DB operations.
+    const { createClient } = await import("@supabase/supabase-js");
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
