@@ -87,18 +87,49 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });
 
     if (status === "checked_in") {
-      const checkInDate = new Date(booking.check_in_date);
-      const today = new Date();
-      checkInDate.setHours(0, 0, 0, 0);
-      today.setHours(0, 0, 0, 0);
+      // ✅ Use PHT timezone to avoid false "Cannot check in yet" errors when
+      // the server's UTC clock is still on the previous calendar day.
+      const nowPHT = new Date(
+        new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }),
+      );
+      const todayPHTStr = `${nowPHT.getFullYear()}-${String(nowPHT.getMonth() + 1).padStart(2, "0")}-${String(nowPHT.getDate()).padStart(2, "0")}`;
 
-      if (today < checkInDate) {
+      if (todayPHTStr < booking.check_in_date) {
         return NextResponse.json(
           {
             error: `Cannot check in yet. Scheduled for ${booking.check_in_date}`,
           },
           { status: 400 },
         );
+      }
+
+      // ✅ Tour check-in time-window guard (PHT)
+      // Day Tours don't happen at 1 AM — enforce a sensible window.
+      const roomNameLower = (booking.room_types?.name || "").toLowerCase();
+      const currentHour = nowPHT.getHours();
+
+      if (roomNameLower.includes("day tour")) {
+        // Day Tour: 6:00 AM – 8:00 PM
+        if (currentHour < 6 || currentHour >= 20) {
+          return NextResponse.json(
+            {
+              error:
+                "Day Tour check-in is only available between 6:00 AM and 8:00 PM. Please verify the booking date.",
+            },
+            { status: 400 },
+          );
+        }
+      } else if (roomNameLower.includes("night tour")) {
+        // Night Tour: 4:00 PM – 11:59 PM
+        if (currentHour < 16) {
+          return NextResponse.json(
+            {
+              error:
+                "Night Tour check-in is only available from 4:00 PM onwards.",
+            },
+            { status: 400 },
+          );
+        }
       }
 
       if (!assigned_room_id && !booking.assigned_room_id) {
