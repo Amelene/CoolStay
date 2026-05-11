@@ -96,6 +96,7 @@ interface ActionButtonProps {
   isLoading: boolean;
   variant?: "primary" | "secondary" | "danger" | "ghost";
   disabled?: boolean;
+  title?: string;
 }
 
 interface StatCardProps {
@@ -638,14 +639,28 @@ function BookingCard({
   const [expanded, setExpanded] = useState(false);
   const isProcessing = processingId === booking.id;
 
-  // Logic
+  // Logic — all comparisons in PHT (admin browser is in PHT)
   const checkInDate = new Date(booking.check_in_date);
   const checkOutDate = new Date(booking.check_out_date);
+  // Use local-time midnight so isEarly is PHT-correct for staff in PH
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   checkInDate.setHours(0, 0, 0, 0);
   const isEarly = today < checkInDate;
   const isOverdue = today > checkInDate && booking.status === "confirmed";
+
+  // Tour check-in time-window guard (mirrors the server-side rule)
+  const roomNameLower = (booking.room_types?.name || "").toLowerCase();
+  const currentHour = new Date().getHours(); // local (PHT) hour on admin client
+  const isDayTourWindow   = roomNameLower.includes("day tour")   && (currentHour < 6 || currentHour >= 20);
+  const isNightTourWindow = roomNameLower.includes("night tour") && currentHour < 16;
+  const isOutsideWindow   = isDayTourWindow || isNightTourWindow;
+  const windowHint = isDayTourWindow
+    ? "Day Tour check-in: 6:00 AM – 8:00 PM only"
+    : isNightTourWindow
+      ? "Night Tour check-in: from 4:00 PM onwards"
+      : "";
+
 
   // Financials
   const totalAmount = booking.total_amount || 0;
@@ -911,7 +926,8 @@ function BookingCard({
                     onCheckInClick(booking);
                   }}
                   isLoading={isProcessing}
-                  disabled={isEarly}
+                  disabled={isEarly || isOutsideWindow}
+                  title={isOutsideWindow ? windowHint : isEarly ? `Check-in date: ${booking.check_in_date}` : undefined}
                 />
               </div>
             )}
@@ -1043,6 +1059,7 @@ function ActionButton({
   isLoading,
   variant = "primary",
   disabled,
+  title,
 }: ActionButtonProps) {
   // Styles for different variants
   const variants = {
@@ -1065,6 +1082,7 @@ function ActionButton({
     <button
       onClick={onClick}
       disabled={isLoading || disabled}
+      title={title}
       className={`${variantStyle} ${color}`}
     >
       {isLoading ? (
