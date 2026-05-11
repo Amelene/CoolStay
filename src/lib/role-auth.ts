@@ -86,9 +86,13 @@ export async function authorizeRole(
   return { error: null, user, role: userData.role as UserRole };
 }
 
-/** Admin-only */
+
 export async function authorizeAdminOnly(supabase: SupabaseClient) {
-  return authorizeRole(supabase, [ROLES.ADMIN]);
+  return authorizeRole(supabase, [
+    ROLES.ADMIN,
+    "super_admin" as UserRole,
+    "administrator" as UserRole,
+  ]);
 }
 
 /** Admin + Manager */

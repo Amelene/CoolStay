@@ -13,6 +13,9 @@ export async function POST(request: Request) {
 
   const { error: authError, user } = await authorizeAdminOnly(supabase);
   if (authError) return authError;
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   // 1. Prepare the Snapshot Data
   const reportSnapshot = {
