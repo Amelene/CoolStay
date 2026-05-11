@@ -99,6 +99,7 @@ export interface InventoryItem {
 export interface CurrentStockReportData {
   generatedAt: string;
   generatedBy: string;
+  filterLabel?: string; // shown when downloading a filtered view
   summary: {
     totalItems: number;
     lowStockCount: number;
@@ -119,6 +120,11 @@ export default function CurrentStockReport({
           <View>
             <Text style={styles.brand}>CoolStay Resort</Text>
             <Text style={styles.title}>Current Stock Report</Text>
+            {data.filterLabel && (
+              <Text style={{ fontSize: 8, color: "#0077B6", marginTop: 4 }}>
+                Filter: {data.filterLabel}
+              </Text>
+            )}
           </View>
           <View style={styles.meta}>
             <Text>Generated: {data.generatedAt}</Text>
