@@ -160,14 +160,22 @@ function AccommodationContent() {
 
   const fetchRooms = async () => {
     const supabase = createClient();
-    const { data, error } = await supabase
-      .from("room_types")
-      .select("*, reviews(rating)")
-      .eq("is_active", true);
+
+    const [{ data, error }, { data: unavailableInventory }] = await Promise.all([
+      supabase.from("room_types").select("*, reviews(rating)").eq("is_active", true),
+      supabase.from("room_inventory").select("room_type_id").in("status", ["cleaning", "out_of_order"]),
+    ]);
 
     if (error) {
       toast.error("Failed to load rooms");
     } else {
+      // Build offline-room map
+      const unavailableMap: Record<string, number> = {};
+      unavailableInventory?.forEach((r) => {
+        if (r.room_type_id)
+          unavailableMap[r.room_type_id] = (unavailableMap[r.room_type_id] || 0) + 1;
+      });
+
       const roomsWithData = ((data as RawRoomData[]) || []).map((room) => {
         const ratings = room.reviews?.map((r) => r.rating) || [];
         const count = ratings.length;
@@ -175,12 +183,13 @@ function AccommodationContent() {
           count > 0
             ? ratings.reduce((a: number, b: number) => a + b, 0) / count
             : 0;
-        // 🔒 Default: On initial load, all physical rooms are 'available' for display
+        // Deduct rooms that are offline (cleaning / out_of_order)
+        const offline = unavailableMap[room.id] || 0;
         return {
           ...room,
           avg_rating: avg,
           review_count: count,
-          available_count: room.total_rooms,
+          available_count: Math.max(0, room.total_rooms - offline),
         };
       });
       setRooms(roomsWithData);
@@ -318,8 +327,8 @@ function AccommodationContent() {
       const searchEnd =
         checkOutDate === checkInDate
           ? new Date(new Date(checkOutDate).getTime() + 86400000)
-              .toISOString()
-              .split("T")[0]
+            .toISOString()
+            .split("T")[0]
           : checkOutDate;
 
       const { data: busyBookings, error: bookingsError } = await supabase
@@ -329,6 +338,21 @@ function AccommodationContent() {
         .lt("check_in_date", searchEnd)
         .gte("check_out_date", searchStart);
       if (bookingsError) throw bookingsError;
+
+      // 🔒 FIX: Also count rooms physically unavailable (cleaning / out_of_order).
+      // These have no active booking so peakBooked misses them.
+      const { data: unavailableInventory } = await supabase
+        .from("room_inventory")
+        .select("room_type_id")
+        .in("status", ["cleaning", "out_of_order"]);
+
+      // Build a map: room_type_id → count of unavailable physical rooms
+      const unavailableMap: Record<string, number> = {};
+      unavailableInventory?.forEach((r) => {
+        if (r.room_type_id)
+          unavailableMap[r.room_type_id] =
+            (unavailableMap[r.room_type_id] || 0) + 1;
+      });
 
       const concurrencyMap: Record<string, Record<string, number>> = {};
 
@@ -340,8 +364,8 @@ function AccommodationContent() {
         const bEnd =
           booking.check_in_date === booking.check_out_date
             ? new Date(new Date(booking.check_in_date).getTime() + 86400000)
-                .toISOString()
-                .split("T")[0]
+              .toISOString()
+              .split("T")[0]
             : booking.check_out_date;
 
         const overlapStart = new Date(
@@ -370,8 +394,9 @@ function AccommodationContent() {
             if (count > peakBooked) peakBooked = count as number;
           }
 
-          // Calculate exactly how many are left
-          const availableCount = room.total_rooms - peakBooked;
+          // Subtract booked AND physically offline rooms (cleaning / out_of_order)
+          const unavailableCount = unavailableMap[room.id] || 0;
+          const availableCount = room.total_rooms - peakBooked - unavailableCount;
 
           const ratings = room.reviews?.map((r) => r.rating) || [];
           const count = ratings.length;
@@ -458,9 +483,9 @@ function AccommodationContent() {
                   >
                     {checkInDate
                       ? new Date(checkInDate).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                        })
+                        month: "short",
+                        day: "numeric",
+                      })
                       : "Select Date"}
                   </span>
                 </div>
@@ -473,9 +498,9 @@ function AccommodationContent() {
                   >
                     {checkOutDate
                       ? new Date(checkOutDate).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                        })
+                        month: "short",
+                        day: "numeric",
+                      })
                       : "Select Date"}
                   </span>
                 </div>
