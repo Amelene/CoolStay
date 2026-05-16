@@ -168,9 +168,12 @@ export default function AddTaskModal({
 
   useEffect(() => {
     if (taskCategory === "general") {
-      if (title.startsWith("[CLEANING]") || title.startsWith("[MAINTENANCE]")) {
-        setTitle("");
-      }
+      setTitle((currentTitle) =>
+        currentTitle.startsWith("[CLEANING]") ||
+        currentTitle.startsWith("[MAINTENANCE]")
+          ? ""
+          : currentTitle,
+      );
       return;
     }
 
