@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import Image from "next/image";
 import RoomModal from "@/components/admin/RoomModal";
-import { toast } from "sonner"; // Import
+import { toast } from "sonner";
 
 interface RoomType {
   id: string;
@@ -32,16 +31,23 @@ export default function RoomAvailabilityPage() {
 
   useEffect(() => {
     const fetchRooms = async () => {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from("room_types")
-        .select("*")
-        .order("created_at", { ascending: false });
+      try {
+        const response = await fetch("/api/admin/rooms", { cache: "no-store" });
 
-      if (data) setRooms(data);
-      if (error) console.error("Error fetching rooms:", error);
+        if (!response.ok) {
+          const data = await response.json().catch(() => null);
+          throw new Error(data?.error || "Failed to load rooms");
+        }
 
-      setLoading(false);
+        const data = (await response.json()) as RoomType[];
+        setRooms(data);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to load rooms",
+        );
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchRooms();
@@ -67,21 +73,33 @@ export default function RoomAvailabilityPage() {
     setLoading(true);
     const toastId = toast.loading("Deleting room...");
 
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("room_types")
-      .delete()
-      .eq("id", selectedRoomId);
+    try {
+      const response = await fetch("/api/admin/rooms", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selectedRoomId }),
+      });
 
-    if (error) {
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to delete room");
+      }
+
       toast.dismiss(toastId);
-      toast.error(error.message);
-      setLoading(false);
-    } else {
-      toast.dismiss(toastId);
-      toast.success("Room deleted successfully");
+      toast.success(
+        data?.archived
+          ? "Room archived because it has booking history"
+          : "Room deleted successfully",
+      );
       setSelectedRoomId(null);
       handleRefresh();
+    } catch (error) {
+      toast.dismiss(toastId);
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete room",
+      );
+      setLoading(false);
     }
   };
 

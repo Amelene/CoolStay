@@ -2,7 +2,6 @@
 
 import { Button } from "@/components/ui/Button";
 import { RoomSchema } from "@/lib/schemas";
-import { createClient } from "@/lib/supabase/client";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Upload } from "lucide-react";
 import Image from "next/image";
@@ -128,53 +127,27 @@ export default function RoomModal({
 
     setLoading(true);
     const toastId = toast.loading("Saving room details...");
-    const supabase = createClient();
 
     try {
-      let imageUrl = data.image_url;
+      const formData = new FormData();
+      if (roomToEdit) formData.set("id", roomToEdit.id);
+      formData.set("name", data.name);
+      formData.set("description", data.description || "");
+      formData.set("base_price", String(data.base_price));
+      formData.set("capacity", String(data.capacity));
+      formData.set("total_rooms", String(data.total_rooms));
+      formData.set("image_url", data.image_url || "");
+      if (imageFile) formData.set("image", imageFile);
 
-      // Upload new image if file is selected
-      if (imageFile) {
-        const fileExt = imageFile.name.split(".").pop();
-        const fileName = `room_${Date.now()}.${fileExt}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from("room-images")
-          .upload(fileName, imageFile);
+      const response = await fetch("/api/admin/rooms", {
+        method: roomToEdit ? "PATCH" : "POST",
+        body: formData,
+      });
 
-        if (uploadError) throw new Error("Image upload failed: " + uploadError.message);
-
-        const { data: urlData } = supabase.storage
-          .from("room-images")
-          .getPublicUrl(fileName);
-
-        imageUrl = urlData.publicUrl;
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error || "Failed to save room");
       }
-
-      const payload = {
-        ...data,
-        image_url: imageUrl,
-        updated_at: new Date().toISOString(),
-      };
-
-      let error;
-
-      if (roomToEdit) {
-        const { error: updateError } = await supabase
-          .from("room_types")
-          .update(payload)
-          .eq("id", roomToEdit.id);
-        error = updateError;
-      } else {
-        const { error: insertError } = await supabase.from("room_types").insert({
-          id: crypto.randomUUID(),
-          created_at: new Date().toISOString(),
-          ...payload,
-        });
-        error = insertError;
-      }
-
-      if (error) throw error;
 
       toast.dismiss(toastId);
       toast.success(roomToEdit ? "Room updated!" : "Room created!");
@@ -182,7 +155,9 @@ export default function RoomModal({
       onClose();
     } catch (error: unknown) {
       toast.dismiss(toastId);
-      toast.error("Error: " + (error instanceof Error ? error.message : "Unknown error"));
+      toast.error(
+        "Error: " + (error instanceof Error ? error.message : "Unknown error"),
+      );
     } finally {
       setLoading(false);
     }
