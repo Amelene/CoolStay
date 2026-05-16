@@ -15,6 +15,7 @@ import {
   FilePlus,
   Loader2,
   LucideIcon,
+  Eye,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -156,7 +157,7 @@ export default function AdminDashboardHome() {
         </Link>
 
         {/* ACTION ITEMS -> Bookings */}
-        <Link href="/admin/bookings" className="group">
+        <Link href="/admin/bookings?status=Pending" className="group">
           <KpiCard
             label="Action Items"
             value={(data.actionItems || 0).toString()}
@@ -202,9 +203,10 @@ export default function AdminDashboardHome() {
             emptyMessage="No arrivals scheduled."
           >
             {data.arrivals.map((booking) => (
-              <div
+              <Link
                 key={booking.id}
-                className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100"
+                href={`/admin/bookings?booking=${encodeURIComponent(booking.id)}`}
+                className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100 hover:border-blue-200 hover:bg-blue-50/60 transition-colors group"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs">
@@ -227,7 +229,10 @@ export default function AdminDashboardHome() {
                     {booking.guests_count}
                   </span>
                 </div>
-              </div>
+                <span className="text-xs font-bold text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1">
+                  <Eye className="w-3.5 h-3.5" /> View
+                </span>
+              </Link>
             ))}
           </LogisticsCard>
 
@@ -238,9 +243,10 @@ export default function AdminDashboardHome() {
             emptyMessage="No departures today."
           >
             {data.departures.map((booking) => (
-              <div
+              <Link
                 key={booking.id}
-                className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100"
+                href={`/admin/bookings?booking=${encodeURIComponent(booking.id)}`}
+                className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100 hover:border-orange-200 hover:bg-orange-50/60 transition-colors group"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center font-bold text-xs">
@@ -255,10 +261,10 @@ export default function AdminDashboardHome() {
                     </p>
                   </div>
                 </div>
-                <button className="text-xs font-bold text-blue-600 hover:underline">
-                  View
-                </button>
-              </div>
+                <span className="text-xs font-bold text-blue-600 inline-flex items-center gap-1">
+                  <Eye className="w-3.5 h-3.5" /> View
+                </span>
+              </Link>
             ))}
           </LogisticsCard>
         </div>
@@ -280,8 +286,9 @@ export default function AdminDashboardHome() {
             ) : (
               <div className="space-y-3">
                 {data.maintenance.map((room, idx) => (
-                  <div
+                  <Link
                     key={idx}
+                    href="/admin/room-status"
                     className="bg-red-50 p-3 rounded-lg border border-red-100 flex gap-3"
                   >
                     <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
@@ -293,7 +300,7 @@ export default function AdminDashboardHome() {
                         {room.notes || "Under maintenance"}
                       </p>
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             )}
