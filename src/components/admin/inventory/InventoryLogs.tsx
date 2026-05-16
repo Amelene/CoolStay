@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Loader2,
   ArrowUpCircle,
@@ -47,30 +47,61 @@ export default function InventoryLogs() {
     }
   };
 
-  // --- NEW: Client-side Filtering Logic ---
-  const filteredLogs = logs.filter((log) => {
-    const searchLower = searchTerm.toLowerCase();
-    const itemName = (
-      log.inventory_supplies?.item_name || "Deleted Item"
-    ).toLowerCase();
-    const usedBy = (log.used_by || "").toLowerCase();
-    const notes = (log.notes || "").toLowerCase();
+  const actionFilterLabel =
+    actionFilter === "restock"
+      ? "Restocks Only"
+      : actionFilter === "usage"
+        ? "Usage Only"
+        : "All Actions";
 
-    const matchesSearch =
-      itemName.includes(searchLower) ||
-      usedBy.includes(searchLower) ||
-      notes.includes(searchLower);
+  const reportFilters = {
+    search: searchTerm.trim() || undefined,
+    action: actionFilterLabel,
+  };
 
-    const isRestock = log.purpose === "Restock";
-    const matchesAction =
-      actionFilter === "all"
-        ? true
-        : actionFilter === "restock"
-          ? isRestock
-          : !isRestock;
+  // Keep the table and PDF export on the same filtered data source.
+  const filteredLogs = useMemo(() => {
+    const searchLower = searchTerm.trim().toLowerCase();
 
-    return matchesSearch && matchesAction;
-  });
+    return logs.filter((log) => {
+      const isRestock = log.purpose === "Restock";
+      const actionText = isRestock ? "Restock In" : "Used Usage Out";
+      const location = log.room_inventory?.room_number
+        ? `Room ${log.room_inventory.room_number}`
+        : "General Stockroom";
+      const dateText = new Date(log.usage_date).toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const searchableText = [
+        log.inventory_supplies?.item_name || "Deleted Item",
+        log.inventory_supplies?.unit || "",
+        log.used_by || "",
+        log.notes || "",
+        log.purpose || "",
+        actionText,
+        location,
+        String(log.quantity_used),
+        dateText,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchesSearch =
+        searchLower.length === 0 || searchableText.includes(searchLower);
+      const matchesAction =
+        actionFilter === "all"
+          ? true
+          : actionFilter === "restock"
+            ? isRestock
+            : !isRestock;
+
+      return matchesSearch && matchesAction;
+    });
+  }, [logs, searchTerm, actionFilter]);
 
   if (loading)
     return (
@@ -90,7 +121,7 @@ export default function InventoryLogs() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Search items, staff, or notes..."
+              placeholder="Search logs..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-[#0A1A44] outline-none transition-all"
@@ -113,7 +144,13 @@ export default function InventoryLogs() {
 
         {/* Report Button */}
         <PDFDownloadLink
-          document={<InventoryReport logs={filteredLogs} generatedBy="Admin" />}
+          document={
+            <InventoryReport
+              logs={filteredLogs}
+              generatedBy="Admin"
+              filters={reportFilters}
+            />
+          }
           fileName={`Inventory_Report_${new Date().toISOString().split("T")[0]}.pdf`}
           className="bg-[#0A1A44] hover:bg-blue-900 text-white px-5 py-2 rounded-lg text-sm font-bold flex items-center gap-2 shadow-md transition-all shrink-0 w-full sm:w-auto justify-center"
         >
