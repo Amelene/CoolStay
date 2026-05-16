@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import {
   Loader2,
   DoorOpen,
@@ -33,6 +32,12 @@ interface RoomInventory {
   categoryName?: string;
 }
 
+interface RoomStatusResponse {
+  rooms: RoomInventory[];
+  categories: string[];
+  canUpdate: boolean;
+}
+
 export default function RoomStatusDashboard() {
   const [loading, setLoading] = useState(true);
   const [allRooms, setAllRooms] = useState<RoomInventory[]>([]);
@@ -43,48 +48,21 @@ export default function RoomStatusDashboard() {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
 
-  // Detect staff role from JWT — no DB call needed
-  useEffect(() => {
-    const checkRole = async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      setIsReadOnly(user?.user_metadata?.role === "staff");
-    };
-    checkRole();
-  }, []);
-
   const fetchStatus = async () => {
     setLoading(true);
-    const supabase = createClient();
 
     try {
-      const { data: roomsData } = await supabase
-        .from("room_inventory")
-        .select("*")
-        .order("room_number", { ascending: true });
-      const { data: typesData } = await supabase
-        .from("room_types")
-        .select("id, name");
-
-      if (!roomsData || !typesData) throw new Error("Failed to load data");
-
-      const typeMap: Record<string, string> = {};
-      typesData.forEach((t) => (typeMap[t.id] = t.name));
-
-      const mappedRooms: RoomInventory[] = roomsData.map((room) => {
-        let catName = typeMap[room.room_type_id] || "Standard";
-        if (catName.toLowerCase() === "uncategorized") {
-          catName = "Standard";
-        }
-        return { ...room, categoryName: catName };
+      const response = await fetch("/api/admin/room-status", {
+        cache: "no-store",
       });
 
-      setAllRooms(mappedRooms);
+      if (!response.ok) throw new Error("Failed to load data");
 
-      const uniqueCategories = Array.from(
-        new Set(mappedRooms.map((r) => r.categoryName || "Standard")),
-      );
-      setCategories(["All", ...uniqueCategories]);
+      const data = (await response.json()) as RoomStatusResponse;
+
+      setAllRooms(data.rooms || []);
+      setCategories(data.categories || ["All"]);
+      setIsReadOnly(!data.canUpdate);
     } catch {
       toast.error("Failed to fetch room status");
     } finally {
@@ -117,17 +95,23 @@ export default function RoomStatusDashboard() {
     );
 
     try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("room_inventory")
-        .update({ status: newStatus })
-        .eq("id", roomId);
+      const response = await fetch("/api/admin/room-status", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId, status: newStatus }),
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error || "Failed to update status");
+      }
+
       toast.success(`Room updated to ${newStatus.replace("_", " ")}`);
-    } catch {
+    } catch (error) {
       setAllRooms(previousRooms);
-      toast.error("Failed to update status");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update status",
+      );
     }
   };
 
@@ -155,12 +139,18 @@ export default function RoomStatusDashboard() {
           dot: "bg-blue-500",
         };
       case "maintenance":
-      case "out_of_order":
         return {
           color: "bg-orange-50 border-orange-200 text-orange-700",
           icon: Wrench,
           label: "Maintenance",
           dot: "bg-orange-500",
+        };
+      case "out_of_order":
+        return {
+          color: "bg-slate-100 border-slate-300 text-slate-700",
+          icon: Ban,
+          label: "Out of Order",
+          dot: "bg-slate-600",
         };
       default:
         return {
@@ -179,7 +169,10 @@ export default function RoomStatusDashboard() {
   const occupiedRooms = allRooms.filter((r) => r.status === "occupied").length;
   const cleaningRooms = allRooms.filter((r) => r.status === "cleaning").length;
   const maintenanceRooms = allRooms.filter(
-    (r) => r.status === "maintenance" || r.status === "out_of_order",
+    (r) => r.status === "maintenance",
+  ).length;
+  const outOfOrderRooms = allRooms.filter(
+    (r) => r.status === "out_of_order",
   ).length;
 
   const filteredRooms = allRooms.filter((room) => {
@@ -198,7 +191,7 @@ export default function RoomStatusDashboard() {
 
   const groupedRooms = filteredRooms.reduce(
     (acc, room) => {
-      const catName = room.categoryName || "Standard";
+      const catName = room.categoryName || "Uncategorized";
       if (!acc[catName]) acc[catName] = [];
       acc[catName].push(room);
       return acc;
@@ -262,7 +255,7 @@ export default function RoomStatusDashboard() {
 
       {/* 🔒 COMPACT KPI DASHBOARD: Tighter padding, smaller icons, sleeker layout */}
       {!loading && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
           <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex items-center gap-3">
             <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
               <Building className="w-4 h-4" />
@@ -321,10 +314,23 @@ export default function RoomStatusDashboard() {
             </div>
             <div>
               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                Maint.
+                Maintenance
               </p>
               <p className="text-lg font-black text-orange-600 leading-none">
                 {maintenanceRooms}
+              </p>
+            </div>
+          </div>
+          <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex items-center gap-3">
+            <div className="p-2 bg-slate-100 text-slate-600 rounded-lg">
+              <Ban className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                Out of Order
+              </p>
+              <p className="text-lg font-black text-slate-700 leading-none">
+                {outOfOrderRooms}
               </p>
             </div>
           </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import {
   CheckCircle,
   XCircle,
@@ -31,6 +31,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useSearchParams } from "next/navigation";
 import AdminBookingModal from "@/components/admin/AdminBookingModal";
 import PaymentProofModal from "@/components/admin/PaymentProofModal";
 import TransactionModal from "@/components/admin/TransactionModal";
@@ -138,7 +139,8 @@ const TABS = [
 ];
 const ITEMS_PER_PAGE = 8;
 
-export default function AdminBookingsPage() {
+function AdminBookingsPageContent() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("All");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -159,6 +161,21 @@ export default function AdminBookingsPage() {
   const [checkInConfirm, setCheckInConfirm] = useState<Booking | null>(null);
   const [checkOutConfirm, setCheckOutConfirm] = useState<Booking | null>(null);
   const [damageNotes, setDamageNotes] = useState("");
+
+  useEffect(() => {
+    const bookingId = searchParams.get("booking");
+    const status = searchParams.get("status");
+    const shouldOpenNewBooking = searchParams.get("new") === "true";
+
+    if (bookingId) setSearchQuery(bookingId);
+    if (status) {
+      const matchingTab = TABS.find(
+        (tab) => tab.toLowerCase() === status.toLowerCase(),
+      );
+      if (matchingTab) setActiveTab(matchingTab);
+    }
+    if (shouldOpenNewBooking) setIsBookingModalOpen(true);
+  }, [searchParams]);
 
   // ✅ FETCH FUNCTION (Memoized for stability)
   const fetchBookings = useCallback(async (isAutoRefresh = false) => {
@@ -613,6 +630,20 @@ export default function AdminBookingsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function AdminBookingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="h-screen flex items-center justify-center -mt-16">
+          <Loader2 className="w-10 h-10 animate-spin text-[#0A1A44]" />
+        </div>
+      }
+    >
+      <AdminBookingsPageContent />
+    </Suspense>
   );
 }
 

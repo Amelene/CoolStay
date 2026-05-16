@@ -9,7 +9,12 @@ import { Button } from "@/components/ui/Button";
 interface RoomInventory {
   id: string;
   room_number: string;
-  status: "available" | "occupied" | "cleaning" | "maintenance";
+  status:
+    | "available"
+    | "occupied"
+    | "cleaning"
+    | "maintenance"
+    | "out_of_order";
 }
 
 interface AdminCheckInModalProps {
@@ -72,13 +77,20 @@ export default function AdminCheckInModal({
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to check in guest");
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || "Failed to check in guest");
+      }
 
       toast.success("Guest checked in! Room marked as occupied.");
       onSuccess();
       onClose();
     } catch (error) {
-      toast.error("An error occurred during check-in.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "An error occurred during check-in.",
+      );
     } finally {
       setLoading(false);
     }

@@ -17,6 +17,11 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   subtitle: { fontSize: 10, color: "#666" },
+  filters: {
+    fontSize: 9,
+    color: "#0077B6",
+    marginTop: 6,
+  },
   table: {
     display: "flex",
     width: "auto",
@@ -67,13 +72,24 @@ interface Log {
 interface InventoryReportProps {
   logs: Log[];
   generatedBy: string;
+  filters?: {
+    search?: string;
+    action?: string;
+  };
 }
 
 export default function InventoryReport({
   logs,
   generatedBy,
+  filters,
 }: InventoryReportProps) {
   const currentDate = new Date().toLocaleDateString();
+  const activeFilters = [
+    filters?.search ? `Search: "${filters.search}"` : null,
+    filters?.action && filters.action !== "All Actions"
+      ? `Action: ${filters.action}`
+      : null,
+  ].filter(Boolean);
 
   return (
     <Document>
@@ -85,6 +101,13 @@ export default function InventoryReport({
           <Text style={styles.subtitle}>
             Generated on: {currentDate} by {generatedBy}
           </Text>
+          <Text style={styles.filters}>
+            Filters:{" "}
+            {activeFilters.length > 0
+              ? activeFilters.join(" | ")
+              : "No filters applied"}
+          </Text>
+          <Text style={styles.subtitle}>Records included: {logs.length}</Text>
         </View>
 
         {/* Table Header */}

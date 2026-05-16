@@ -86,7 +86,17 @@ export async function PATCH(request: Request) {
     if (fetchError || !booking)
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });
 
+    let lockedRoomId: string | null = null;
+    let checkoutRoomId: string | null = null;
+
     if (status === "checked_in") {
+      if (booking.status === "checked_in") {
+        return NextResponse.json(
+          { error: "This booking is already checked in." },
+          { status: 400 },
+        );
+      }
+
       // ✅ Use PHT timezone to avoid false "Cannot check in yet" errors when
       // the server's UTC clock is still on the previous calendar day.
       const nowPHT = new Date(
@@ -140,10 +150,71 @@ export async function PATCH(request: Request) {
       }
 
       const targetRoom = assigned_room_id || booking.assigned_room_id;
-      await supabase
+      const { data: room, error: roomError } = await supabase
         .from("room_inventory")
-        .update({ status: "occupied" })
-        .eq("id", targetRoom);
+        .select("id, room_type_id, room_number, status")
+        .eq("id", targetRoom)
+        .single();
+
+      if (roomError || !room) {
+        return NextResponse.json(
+          { error: "Selected room was not found." },
+          { status: 404 },
+        );
+      }
+
+      if (room.room_type_id !== booking.room_type_id) {
+        return NextResponse.json(
+          { error: "Selected room does not match this booking type." },
+          { status: 400 },
+        );
+      }
+
+      if (room.status !== "available") {
+        return NextResponse.json(
+          {
+            error: `Room ${room.room_number} is currently ${String(room.status).replace("_", " ")}.`,
+          },
+          { status: 409 },
+        );
+      }
+
+      const { count: activeAssignmentCount, error: activeAssignmentError } =
+        await supabase
+          .from("bookings")
+          .select("id", { count: "exact", head: true })
+          .eq("assigned_room_id", targetRoom)
+          .eq("status", "checked_in")
+          .neq("id", id);
+
+      if (activeAssignmentError) throw activeAssignmentError;
+
+      if ((activeAssignmentCount || 0) > 0) {
+        return NextResponse.json(
+          { error: "Selected room is already assigned to an active guest." },
+          { status: 409 },
+        );
+      }
+
+      const { data: lockedRoom, error: lockRoomError } = await supabase
+        .from("room_inventory")
+        .update({ status: "occupied", updated_at: new Date().toISOString() })
+        .eq("id", targetRoom)
+        .eq("status", "available")
+        .select("id")
+        .single();
+
+      if (lockRoomError || !lockedRoom) {
+        return NextResponse.json(
+          {
+            error:
+              "Selected room is no longer available. Refresh and choose another room.",
+          },
+          { status: 409 },
+        );
+      }
+
+      lockedRoomId = targetRoom;
     }
 
     interface UpdatePayload {
@@ -164,12 +235,34 @@ export async function PATCH(request: Request) {
 
     // 🔒 NEW: Early Checkout & Auto-Cleaning Logic
     if (status === "checked_out") {
+      if (booking.status !== "checked_in") {
+        return NextResponse.json(
+          { error: "Only checked-in bookings can be checked out." },
+          { status: 400 },
+        );
+      }
+
       if (booking.assigned_room_id) {
         // Automatically lock the room so staff know it needs cleaning
-        await supabase
-          .from("room_inventory")
-          .update({ status: "cleaning" })
-          .eq("id", booking.assigned_room_id);
+        const { data: roomMarkedCleaning, error: roomCleaningError } =
+          await supabase
+            .from("room_inventory")
+            .update({
+              status: "cleaning",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", booking.assigned_room_id)
+            .select("id")
+            .single();
+
+        if (roomCleaningError || !roomMarkedCleaning) {
+          return NextResponse.json(
+            { error: "Failed to mark the room for cleaning." },
+            { status: 500 },
+          );
+        }
+
+        checkoutRoomId = booking.assigned_room_id;
       }
 
       // Force the server to calculate exact PHT time
@@ -191,7 +284,23 @@ export async function PATCH(request: Request) {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      if (lockedRoomId) {
+        await supabase
+          .from("room_inventory")
+          .update({ status: "available", updated_at: new Date().toISOString() })
+          .eq("id", lockedRoomId);
+      }
+
+      if (checkoutRoomId) {
+        await supabase
+          .from("room_inventory")
+          .update({ status: "occupied", updated_at: new Date().toISOString() })
+          .eq("id", checkoutRoomId);
+      }
+
+      throw error;
+    }
 
     if (status === "checked_in" && booking.guest_id) {
       await supabase.from("notifications").insert({

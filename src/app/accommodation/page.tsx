@@ -163,7 +163,10 @@ function AccommodationContent() {
 
     const [{ data, error }, { data: unavailableInventory }] = await Promise.all([
       supabase.from("room_types").select("*, reviews(rating)").eq("is_active", true),
-      supabase.from("room_inventory").select("room_type_id").in("status", ["cleaning", "out_of_order"]),
+      supabase
+        .from("room_inventory")
+        .select("room_type_id")
+        .in("status", ["cleaning", "maintenance", "out_of_order"]),
     ]);
 
     if (error) {
@@ -183,7 +186,7 @@ function AccommodationContent() {
           count > 0
             ? ratings.reduce((a: number, b: number) => a + b, 0) / count
             : 0;
-        // Deduct rooms that are offline (cleaning / out_of_order)
+        // Deduct rooms that are offline (cleaning / maintenance / out_of_order)
         const offline = unavailableMap[room.id] || 0;
         return {
           ...room,
@@ -339,12 +342,12 @@ function AccommodationContent() {
         .gte("check_out_date", searchStart);
       if (bookingsError) throw bookingsError;
 
-      // 🔒 FIX: Also count rooms physically unavailable (cleaning / out_of_order).
+      // 🔒 FIX: Also count rooms physically unavailable (cleaning / maintenance / out_of_order).
       // These have no active booking so peakBooked misses them.
       const { data: unavailableInventory } = await supabase
         .from("room_inventory")
         .select("room_type_id")
-        .in("status", ["cleaning", "out_of_order"]);
+        .in("status", ["cleaning", "maintenance", "out_of_order"]);
 
       // Build a map: room_type_id → count of unavailable physical rooms
       const unavailableMap: Record<string, number> = {};
@@ -394,7 +397,7 @@ function AccommodationContent() {
             if (count > peakBooked) peakBooked = count as number;
           }
 
-          // Subtract booked AND physically offline rooms (cleaning / out_of_order)
+          // Subtract booked AND physically offline rooms (cleaning / maintenance / out_of_order)
           const unavailableCount = unavailableMap[room.id] || 0;
           const availableCount = room.total_rooms - peakBooked - unavailableCount;
 
