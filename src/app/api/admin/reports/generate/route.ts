@@ -24,6 +24,11 @@ export async function POST(request: Request) {
     range: rangeLabel,
     kpi: {
       revenue: kpi.totalRevenue,
+      expenses: kpi.totalExpenses,
+      payroll: kpi.totalPayroll,
+      netProfit: kpi.netProfit,
+      currentMonthRevenue: kpi.currentMonthRevenue,
+      currentMonthLabel: kpi.currentMonthLabel,
       bookings: kpi.totalBookings,
       occupancy: kpi.activeGuests,
       rating: kpi.avgRating,

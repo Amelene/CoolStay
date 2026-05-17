@@ -16,7 +16,40 @@ export async function GET() {
       .order("item_name", { ascending: true });
 
     if (error) throw error;
-    return NextResponse.json(data);
+
+    const { data: logs, error: logsError } = await supabase
+      .from("supply_usage_logs")
+      .select("supply_id, purpose, quantity_used");
+
+    if (logsError) throw logsError;
+
+    const movementBySupply = new Map<
+      string,
+      { stock_in: number; stock_out: number }
+    >();
+
+    logs?.forEach((log) => {
+      const current = movementBySupply.get(log.supply_id) || {
+        stock_in: 0,
+        stock_out: 0,
+      };
+      const quantity = Number(log.quantity_used || 0);
+
+      if (log.purpose === "Restock") {
+        current.stock_in += quantity;
+      } else {
+        current.stock_out += quantity;
+      }
+
+      movementBySupply.set(log.supply_id, current);
+    });
+
+    return NextResponse.json(
+      (data || []).map((item) => ({
+        ...item,
+        ...(movementBySupply.get(item.id) || { stock_in: 0, stock_out: 0 }),
+      })),
+    );
   } catch (error: unknown) {
     // ✅ Fix: Use 'unknown' and safely access message
     const message =

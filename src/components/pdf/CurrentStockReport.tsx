@@ -67,10 +67,11 @@ const styles = StyleSheet.create({
     padding: 8,
     alignItems: "center",
   },
-  colName: { width: "40%" },
-  colCategory: { width: "25%" },
-  colStock: { width: "20%", textAlign: "center" },
-  colStatus: { width: "15%", textAlign: "right" },
+  colName: { width: "30%" },
+  colCategory: { width: "20%" },
+  colStock: { width: "16%", textAlign: "center" },
+  colMovement: { width: "11%", textAlign: "center" },
+  colStatus: { width: "12%", textAlign: "right" },
 
   statusLow: { color: "#DC2626", fontWeight: "bold" },
   statusGood: { color: "#16A34A" },
@@ -94,6 +95,8 @@ export interface InventoryItem {
   current_stock: number;
   minimum_stock: number;
   unit: string;
+  stock_in?: number;
+  stock_out?: number;
 }
 
 export interface CurrentStockReportData {
@@ -103,6 +106,8 @@ export interface CurrentStockReportData {
   summary: {
     totalItems: number;
     lowStockCount: number;
+    totalStockIn?: number;
+    totalStockOut?: number;
   };
   items: InventoryItem[];
 }
@@ -151,6 +156,18 @@ export default function CurrentStockReport({
               {data.summary.lowStockCount}
             </Text>
           </View>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Total Stock In</Text>
+            <Text style={[styles.summaryValue, { color: "#15803D" }]}>
+              {data.summary.totalStockIn ?? 0}
+            </Text>
+          </View>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Total Stock Out</Text>
+            <Text style={[styles.summaryValue, { color: "#DC2626" }]}>
+              {data.summary.totalStockOut ?? 0}
+            </Text>
+          </View>
         </View>
 
         {/* INVENTORY TABLE */}
@@ -159,6 +176,8 @@ export default function CurrentStockReport({
             <Text style={styles.colName}>Item Name</Text>
             <Text style={styles.colCategory}>Category</Text>
             <Text style={styles.colStock}>Current Level</Text>
+            <Text style={styles.colMovement}>In</Text>
+            <Text style={styles.colMovement}>Out</Text>
             <Text style={styles.colStatus}>Status</Text>
           </View>
 
@@ -175,6 +194,8 @@ export default function CurrentStockReport({
               <Text style={styles.colStock}>
                 {item.current_stock} {item.unit}
               </Text>
+              <Text style={styles.colMovement}>{item.stock_in ?? 0}</Text>
+              <Text style={styles.colMovement}>{item.stock_out ?? 0}</Text>
               <Text
                 style={[
                   styles.colStatus,

@@ -21,6 +21,33 @@ export async function POST() {
 
     if (fetchError) throw fetchError;
 
+    const { data: logs, error: logsError } = await supabase
+      .from("supply_usage_logs")
+      .select("supply_id, purpose, quantity_used");
+
+    if (logsError) throw logsError;
+
+    const movementBySupply = new Map<
+      string,
+      { stock_in: number; stock_out: number }
+    >();
+
+    logs?.forEach((log) => {
+      const current = movementBySupply.get(log.supply_id) || {
+        stock_in: 0,
+        stock_out: 0,
+      };
+      const quantity = Number(log.quantity_used || 0);
+
+      if (log.purpose === "Restock") {
+        current.stock_in += quantity;
+      } else {
+        current.stock_out += quantity;
+      }
+
+      movementBySupply.set(log.supply_id, current);
+    });
+
     // 2. Prepare Snapshot Data
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items = inventory.map((item: any) => ({
@@ -29,11 +56,14 @@ export async function POST() {
       current_stock: item.current_stock,
       minimum_stock: item.minimum_stock,
       unit: item.unit,
+      ...(movementBySupply.get(item.id) || { stock_in: 0, stock_out: 0 }),
     }));
 
     const lowStockCount = items.filter(
       (i) => i.current_stock <= i.minimum_stock,
     ).length;
+    const totalStockIn = items.reduce((sum, item) => sum + item.stock_in, 0);
+    const totalStockOut = items.reduce((sum, item) => sum + item.stock_out, 0);
 
     const reportSnapshot = {
       generatedAt: new Date().toLocaleDateString("en-US", {
@@ -47,6 +77,8 @@ export async function POST() {
       summary: {
         totalItems: items.length,
         lowStockCount,
+        totalStockIn,
+        totalStockOut,
       },
       items,
     };
