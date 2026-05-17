@@ -10,9 +10,10 @@ export default function Hero() {
     <div className="relative min-h-screen flex flex-col">
       {/* Hero Background Area */}
       <section className="relative grow flex items-center justify-center pt-24 pb-16 md:pt-20">
-        {/* Background Image Placeholder */}
+        {/* Background Image */}
         <div className="absolute inset-0 bg-gray-900">
-          <div className="absolute inset-0 opacity-60 bg-[url('https://images.unsplash.com/photo-1566073771259-6a8506099945?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center" />
+          <div className="absolute inset-0 bg-[url('/images/background/coolstay_homepage.jpg')] bg-cover bg-center" />
+          <div className="absolute inset-0 bg-black/35" />
         </div>
 
         <div className="relative z-10 w-full max-w-[1440px] px-4 sm:px-8 grid lg:grid-cols-2 gap-8 lg:gap-12 items-center mt-4 md:mt-10">
