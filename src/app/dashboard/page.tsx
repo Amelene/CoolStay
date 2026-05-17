@@ -297,7 +297,8 @@ export default function DashboardPage() {
 
       <div className="relative grow flex flex-col pt-20 min-h-screen">
         <div className="absolute inset-0 bg-gray-900 z-0 fixed-bg">
-          <div className="absolute inset-0 opacity-60 bg-[url('https://images.unsplash.com/photo-1566073771259-6a8506099945?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center" />
+          <div className="absolute inset-0 bg-[url('/images/background/coolstay_homepage.jpg')] bg-cover bg-center" />
+          <div className="absolute inset-0 bg-black/40" />
         </div>
 
         <div className="relative z-10 w-full max-w-[1440px] mx-auto px-4 sm:px-8 grow flex flex-col justify-center pb-20">

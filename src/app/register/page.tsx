@@ -192,7 +192,7 @@ export default function RegisterPage() {
     <main className="relative min-h-screen flex flex-col font-sans text-slate-800">
       <div className="fixed inset-0 z-0">
         <Image
-          src="/images/background/coolstaybg.png"
+          src="/images/background/coolstay_signup.jpg"
           alt="Resort Aerial View"
           fill
           className="object-cover"

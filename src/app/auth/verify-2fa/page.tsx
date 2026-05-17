@@ -117,13 +117,13 @@ function Verify2FAContent() {
       {/* Background */}
       <div className="fixed inset-0 z-0">
         <Image
-          src="/images/background/coolstaybg.png"
+          src="/images/background/coolstay_signup.jpg"
           alt="Background"
           fill
-          className="object-cover opacity-20"
+          className="object-cover"
           priority
         />
-        <div className="absolute inset-0 bg-[#0A1A44]/80 backdrop-blur-sm" />
+        <div className="absolute inset-0 bg-[#0A1A44]/75 backdrop-blur-sm" />
       </div>
 
       <div className="relative z-10 w-full max-w-md p-4">
