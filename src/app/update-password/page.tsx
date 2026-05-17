@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
@@ -123,19 +124,36 @@ export default function UpdatePasswordPage() {
 
   if (verifyingSession) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F0F8FF]">
-        <Loader2 className="w-10 h-10 animate-spin text-slate-500" />
+      <div className="relative min-h-screen flex items-center justify-center">
+        <Image
+          src="/images/background/coolstay_login.jpg"
+          alt="CoolStay resort background"
+          fill
+          className="object-cover"
+          priority
+        />
+        <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
+        <Loader2 className="relative z-10 w-10 h-10 animate-spin text-white" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#F0F8FF] p-4">
-      <AuthCard
-        title="Create New Password"
-        subtitle="Your new password must be different from previous used passwords."
-      >
-        <form onSubmit={handleUpdate} className="space-y-6">
+    <div className="relative min-h-screen flex items-center justify-center p-4">
+      <Image
+        src="/images/background/coolstay_login.jpg"
+        alt="CoolStay resort background"
+        fill
+        className="object-cover"
+        priority
+      />
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
+      <div className="relative z-10 w-full flex justify-center">
+        <AuthCard
+          title="Create New Password"
+          subtitle="Your new password must be different from previous used passwords."
+        >
+          <form onSubmit={handleUpdate} className="space-y-6">
           <div className="space-y-1">
             <AuthInput
               label="New Password"
@@ -219,8 +237,9 @@ export default function UpdatePasswordPage() {
           >
             {loading ? "Updating..." : "Reset Password"}
           </AuthButton>
-        </form>
-      </AuthCard>
+          </form>
+        </AuthCard>
+      </div>
     </div>
   );
 }
