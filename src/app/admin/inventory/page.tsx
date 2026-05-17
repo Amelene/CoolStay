@@ -14,6 +14,8 @@ import {
   Download,
   Calendar,
   Filter,
+  ArrowUpCircle,
+  ArrowDownCircle,
 } from "lucide-react";
 import AddSupplyModal from "@/components/admin/inventory/AddSupplyModal";
 import AdjustStockModal from "@/components/admin/inventory/AdjustStockModal";
@@ -35,6 +37,8 @@ type SupplyItem = {
   minimum_stock: number;
   unit: string;
   last_restocked: string;
+  stock_in?: number;
+  stock_out?: number;
 };
 
 type ReportItem = {
@@ -131,6 +135,14 @@ export default function InventoryPage() {
       const lowStockCount = processedItems.filter(
         (i) => i.current_stock <= i.minimum_stock
       ).length;
+      const totalStockIn = processedItems.reduce(
+        (sum, item) => sum + (item.stock_in || 0),
+        0,
+      );
+      const totalStockOut = processedItems.reduce(
+        (sum, item) => sum + (item.stock_out || 0),
+        0,
+      );
 
       const reportData: CurrentStockReportData = {
         generatedAt: new Date().toLocaleString("en-US", {
@@ -142,13 +154,20 @@ export default function InventoryPage() {
         }),
         generatedBy: "Admin (Filtered View)",
         filterLabel: parts.length > 0 ? parts.join(" • ") : undefined,
-        summary: { totalItems: processedItems.length, lowStockCount },
+        summary: {
+          totalItems: processedItems.length,
+          lowStockCount,
+          totalStockIn,
+          totalStockOut,
+        },
         items: processedItems.map((item) => ({
           item_name: item.item_name,
           category: item.category,
           current_stock: item.current_stock,
           minimum_stock: item.minimum_stock,
           unit: item.unit,
+          stock_in: item.stock_in || 0,
+          stock_out: item.stock_out || 0,
         })),
       };
 
@@ -234,6 +253,11 @@ export default function InventoryPage() {
   const lowStockCount = items.filter(
     (i) => i.current_stock <= i.minimum_stock,
   ).length;
+  const totalStockIn = items.reduce((sum, item) => sum + (item.stock_in || 0), 0);
+  const totalStockOut = items.reduce(
+    (sum, item) => sum + (item.stock_out || 0),
+    0,
+  );
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-[#F0F8FF] p-8 -m-6 font-sans text-slate-800">
@@ -257,7 +281,7 @@ export default function InventoryPage() {
         </div>
       </div>
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-8">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
           <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
             <Box className="w-6 h-6" />
@@ -267,6 +291,32 @@ export default function InventoryPage() {
               Total Items
             </p>
             <p className="text-2xl font-bold text-slate-800">{items.length}</p>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+          <div className="p-3 bg-green-50 text-green-600 rounded-xl">
+            <ArrowUpCircle className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-400 uppercase">
+              Stock In
+            </p>
+            <p className="text-2xl font-bold text-green-600">
+              {totalStockIn}
+            </p>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+          <div className="p-3 bg-red-50 text-red-600 rounded-xl">
+            <ArrowDownCircle className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-400 uppercase">
+              Stock Out
+            </p>
+            <p className="text-2xl font-bold text-red-600">
+              {totalStockOut}
+            </p>
           </div>
         </div>
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
@@ -412,6 +462,8 @@ export default function InventoryPage() {
                   <tr>
                     <th className="px-6 py-4">Item Name</th>
                     <th className="px-6 py-4">Category</th>
+                    <th className="px-6 py-4 text-center">In</th>
+                    <th className="px-6 py-4 text-center">Out</th>
                     <th className="px-6 py-4">Stock Level</th>
                     <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
@@ -420,7 +472,7 @@ export default function InventoryPage() {
                   {loading ? (
                     <tr>
                       <td
-                        colSpan={4}
+                        colSpan={6}
                         className="p-12 text-center text-slate-400"
                       >
                         <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
@@ -429,7 +481,7 @@ export default function InventoryPage() {
                     </tr>
                   ) : processedItems.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="p-16 text-center">
+                      <td colSpan={6} className="p-16 text-center">
                         <div className="mx-auto w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-3">
                           <Package className="w-8 h-8 text-slate-300" />
                         </div>
@@ -460,6 +512,16 @@ export default function InventoryPage() {
                           <td className="px-6 py-4">
                             <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider">
                               {item.category}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <span className="text-sm font-bold text-green-600">
+                              {item.stock_in || 0}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <span className="text-sm font-bold text-red-600">
+                              {item.stock_out || 0}
                             </span>
                           </td>
                           <td className="px-6 py-4">
@@ -534,7 +596,12 @@ export default function InventoryPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {reports.map((report) => {
-                  let stats = { totalItems: 0, lowStockCount: 0 };
+                  let stats = {
+                    totalItems: 0,
+                    lowStockCount: 0,
+                    totalStockIn: 0,
+                    totalStockOut: 0,
+                  };
                   try {
                     const parsed = JSON.parse(report.report_content);
                     stats = parsed.summary || stats;
@@ -594,6 +661,22 @@ export default function InventoryPage() {
                                 <AlertTriangle className="w-3 h-3 text-red-500" />
                               )}
                             </div>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase">
+                              In
+                            </p>
+                            <p className="font-bold text-green-600">
+                              {stats.totalStockIn || 0}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase">
+                              Out
+                            </p>
+                            <p className="font-bold text-red-600">
+                              {stats.totalStockOut || 0}
+                            </p>
                           </div>
                         </div>
                       </div>
