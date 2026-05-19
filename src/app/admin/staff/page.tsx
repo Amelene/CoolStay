@@ -26,6 +26,7 @@ import { toast } from "sonner";
 // --- TYPES ---
 interface StaffMember {
   id: number;
+  user_id?: string | null;
   employee_id: string;
   first_name: string;
   last_name: string;
@@ -37,6 +38,7 @@ interface StaffMember {
   status: string;
   salary: number;
   hire_date: string;
+  system_role?: "admin" | "manager" | "front_desk" | "staff";
 }
 
 interface ShiftData {
@@ -555,6 +557,7 @@ export default function StaffManagementPage() {
       {/* Modal */}
       <StaffModal
         isOpen={isModalOpen}
+        staffToEdit={staffToEdit}
         onClose={() => setIsModalOpen(false)}
         onSuccess={() => fetchStaff()}
       />
