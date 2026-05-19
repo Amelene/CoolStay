@@ -1,29 +1,52 @@
+import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
+type InternalRole = "admin" | "manager" | "front_desk" | "staff";
+
+const ROLE_PERMISSIONS: Record<InternalRole, string[]> = {
+  admin: ["all"],
+  manager: ["manage_operations", "reports", "inventory", "bookings"],
+  front_desk: ["bookings", "billing", "customers", "inquiries"],
+  staff: ["tasks", "room_status", "schedule"],
+};
+
+function isInternalRole(role: string): role is InternalRole {
+  return ["admin", "manager", "front_desk", "staff"].includes(role);
+}
+
 export async function POST(req: Request) {
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+
+  let authUserId: string | null = null;
+
   try {
     const {
-      email, full_name, role, phone,
-      employee_id, first_name, middle_name, last_name,
-      position, department, salary, hire_date,
+      email,
+      full_name,
+      role,
+      phone,
+      employee_id,
+      first_name,
+      middle_name,
+      last_name,
+      position,
+      department,
+      salary,
+      hire_date,
     } = await req.json();
 
-    // Derive the site URL from the incoming request so the invite email
-    // always contains the real production URL, not localhost.
+    if (!isInternalRole(role)) {
+      return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+    }
+
     const origin = req.headers.get("origin");
-    const host   = req.headers.get("host") ?? "";
-    const proto  = req.headers.get("x-forwarded-proto") ?? "https";
+    const host = req.headers.get("host") ?? "";
+    const proto = req.headers.get("x-forwarded-proto") ?? "https";
     const baseUrl = origin ?? `${proto}://${host}`;
 
-    // 🔑 Service role — bypasses RLS for all DB operations.
-    const { createClient } = await import("@supabase/supabase-js");
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
-    // Step 1: Create auth.users + send invite email.
-    // This MUST happen before the DB writes since we need the auth UUID.
     const { data, error: inviteError } =
       await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
         data: { full_name, role },
@@ -34,52 +57,74 @@ export async function POST(req: Request) {
       if (inviteError.status === 429) {
         return NextResponse.json(
           { error: "Email rate limit exceeded. Please try again in an hour." },
-          { status: 429 }
+          { status: 429 },
         );
       }
-      console.error("Invite Error:", inviteError.message);
+
       return NextResponse.json({ error: inviteError.message }, { status: 400 });
     }
 
-    const authUserId = data.user.id;
+    authUserId = data.user.id;
 
-    // Step 2: Atomically create public.users + staff in one transaction.
-    // onboard_staff_member() is a SECURITY DEFINER RPC that wraps both
-    // inserts in a single PostgreSQL transaction — if either fails,
-    // both roll back. No orphaned rows possible.
-    const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc(
-      "onboard_staff_member",
-      {
-        p_auth_user_id: authUserId,
-        p_full_name:    full_name,
-        p_email:        email,
-        p_phone:        phone ?? null,
-        p_role:         role,
-        p_employee_id:  employee_id,
-        p_first_name:   first_name,
-        p_middle_name:  middle_name ?? null,
-        p_last_name:    last_name,
-        p_position:     position,
-        p_department:   department,
-        p_salary:       salary,
-        p_hire_date:    hire_date,
-      }
-    );
+    const { data: publicUser, error: userError } = await supabaseAdmin
+      .from("users")
+      .insert({
+        auth_user_id: authUserId,
+        email,
+        full_name,
+        phone: phone ?? null,
+        role,
+        is_admin: role === "admin",
+      })
+      .select("id")
+      .single();
 
-    if (rpcError) {
-      console.error("Onboard RPC Error:", rpcError.message);
-      // Auth user was already created — note it so admin knows
-      return NextResponse.json(
+    if (userError) throw userError;
+
+    const { data: staff, error: staffError } = await supabaseAdmin
+      .from("staff")
+      .insert({
+        user_id: publicUser.id,
+        employee_id,
+        email,
+        phone,
+        first_name,
+        middle_name: middle_name ?? null,
+        last_name,
+        position,
+        department,
+        salary,
+        hire_date,
+        status: "active",
+      })
+      .select("id")
+      .single();
+
+    if (staffError) throw staffError;
+
+    const { error: adminUserError } = await supabaseAdmin
+      .from("admin_users")
+      .upsert(
         {
-          error: `Invite sent but DB setup failed: ${rpcError.message}. Auth user ID: ${authUserId}`,
+          id: authUserId,
+          role,
+          permissions: ROLE_PERMISSIONS[role],
         },
-        { status: 500 }
+        { onConflict: "id" },
       );
+
+    if (adminUserError) throw adminUserError;
+
+    return NextResponse.json({
+      user_id: publicUser.id,
+      auth_user_id: authUserId,
+      staff_id: staff.id,
+    });
+  } catch (error: unknown) {
+    if (authUserId) {
+      await supabaseAdmin.auth.admin.deleteUser(authUserId);
     }
 
-    // rpcResult = public.users.id (returned by the RPC function)
-    return NextResponse.json({ user_id: rpcResult, auth_user_id: authUserId });
-  } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Internal Error";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
