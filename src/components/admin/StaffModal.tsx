@@ -40,25 +40,25 @@ const ROLE_MAPPING: Record<
 > = {
   admin: {
     label: "Super Admin Access",
-    positions: ["Super Admin", "Administrator"],
+    positions: ["Super Admin"],
     department: "Management",
     salary: 45000,
   },
   manager: {
     label: "Manager Access",
-    positions: ["Operations Manager", "Resort Manager"],
+    positions: ["Resort Manager"],
     department: "Management",
     salary: 35000,
   },
   front_desk: {
     label: "Front Desk Access",
-    positions: ["Receptionist", "Concierge", "Front Desk Officer"],
+    positions: ["Receptionist"],
     department: "Front Desk",
     salary: 22000,
   },
   staff: {
     label: "Staff Access",
-    positions: ["Cleaner", "Maintenance", "Security"],
+    positions: ["Cleaner", "Maintenance"],
     department: "Operations",
     salary: 16000,
   },
