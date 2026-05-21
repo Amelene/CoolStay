@@ -19,6 +19,7 @@ import {
   Tag,
   Loader2,
   AlertTriangle,
+  Upload,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
@@ -45,6 +46,22 @@ interface BookRoomModalProps {
 }
 
 type StayType = "day" | "night" | "overnight";
+type DiscountType = "Senior" | "PWD";
+
+const MAX_DISCOUNT_ID_UPLOADS = 2;
+
+const getRequiredDiscountIdUploads = (guestCount: number) => {
+  if (guestCount <= 0) return 0;
+  return Math.min(guestCount, MAX_DISCOUNT_ID_UPLOADS);
+};
+
+const hasRequiredDiscountIdFiles = (
+  files: (File | null)[],
+  requiredCount: number,
+) => files.slice(0, requiredCount).filter(Boolean).length === requiredCount;
+
+const formatIdUploadRequirement = (count: number, label: string) =>
+  `${count} ${label} ID ${count === 1 ? "upload" : "uploads"}`;
 
 const getDaysInMonth = (year: number, month: number) =>
   new Date(year, month + 1, 0).getDate();
@@ -76,6 +93,8 @@ export default function BookRoomModal({
   const [infants, setInfants] = useState(initialInfants);
   const [seniors, setSeniors] = useState(0);
   const [pwds, setPwds] = useState(0);
+  const [seniorIdFiles, setSeniorIdFiles] = useState<(File | null)[]>([]);
+  const [pwdIdFiles, setPwdIdFiles] = useState<(File | null)[]>([]);
 
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [verifyingPromo, setVerifyingPromo] = useState(false);
@@ -127,6 +146,16 @@ export default function BookRoomModal({
   const maxCapacity = room.capacity || 10;
   const currentTotalGuests = adults + children + seniors + pwds;
   const canAddGuest = currentTotalGuests < maxCapacity;
+  const seniorIdUploadCount = getRequiredDiscountIdUploads(seniors);
+  const pwdIdUploadCount = getRequiredDiscountIdUploads(pwds);
+
+  useEffect(() => {
+    setSeniorIdFiles((prev) => prev.slice(0, seniorIdUploadCount));
+  }, [seniorIdUploadCount]);
+
+  useEffect(() => {
+    setPwdIdFiles((prev) => prev.slice(0, pwdIdUploadCount));
+  }, [pwdIdUploadCount]);
 
   const handleAddGuest = (
     setter: React.Dispatch<React.SetStateAction<number>>,
@@ -170,6 +199,87 @@ export default function BookRoomModal({
     }
     const val = parseInt(valStr, 10);
     if (!isNaN(val) && val >= 0) setInfants(val);
+  };
+
+  const validateDiscountIdFile = (file: File) => {
+    const maxSize = 5 * 1024 * 1024;
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "application/pdf",
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      toast.error("Please upload a JPEG, PNG, WEBP, or PDF file.");
+      return false;
+    }
+
+    if (file.size > maxSize) {
+      toast.error("ID upload must be 5 MB or smaller.");
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleDiscountIdFileChange = (
+    event: React.ChangeEvent<HTMLInputElement>,
+    setter: React.Dispatch<React.SetStateAction<(File | null)[]>>,
+    index: number,
+  ) => {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile) return;
+    if (!validateDiscountIdFile(selectedFile)) {
+      event.target.value = "";
+      return;
+    }
+    setter((prev) => {
+      const next = [...prev];
+      next[index] = selectedFile;
+      return next;
+    });
+  };
+
+  const uploadDiscountId = async ({
+    bookingId,
+    file,
+    discountType,
+    slotNumber,
+  }: {
+    bookingId: string;
+    file: File;
+    discountType: DiscountType;
+    slotNumber: number;
+  }) => {
+    const supabase = createClient();
+    const fileExt = file.name.split(".").pop() || "jpg";
+    const filePath = `${bookingId}/${discountType.toLowerCase()}_${slotNumber}_${Date.now()}.${fileExt}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("booking-discount-ids")
+      .upload(filePath, file);
+
+    if (uploadError) throw new Error(uploadError.message);
+
+    const { data } = supabase.storage
+      .from("booking-discount-ids")
+      .getPublicUrl(filePath);
+
+    const res = await fetch("/api/bookings/discount-ids", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        booking_id: bookingId,
+        discount_type: discountType,
+        id_image_url: data.publicUrl,
+      }),
+    });
+
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.error || `Failed to save ${discountType} ID`);
+    }
   };
 
   let baseTotalPrice = 0;
@@ -307,6 +417,26 @@ export default function BookRoomModal({
       return;
     }
 
+    if (activeDiscountType === "senior") {
+      if (
+        seniors > 0 &&
+        !hasRequiredDiscountIdFiles(seniorIdFiles, seniorIdUploadCount)
+      ) {
+        toast.error(
+          `Please upload ${formatIdUploadRequirement(seniorIdUploadCount, "Senior Citizen")}.`,
+        );
+        setLoading(false);
+        return;
+      }
+      if (pwds > 0 && !hasRequiredDiscountIdFiles(pwdIdFiles, pwdIdUploadCount)) {
+        toast.error(
+          `Please upload ${formatIdUploadRequirement(pwdIdUploadCount, "PWD")}.`,
+        );
+        setLoading(false);
+        return;
+      }
+    }
+
     const supabase = createClient();
     const {
       data: { user },
@@ -342,6 +472,36 @@ export default function BookRoomModal({
       const result = await response.json();
       if (!response.ok)
         throw new Error(result.error || "Failed to complete booking.");
+
+      if (activeDiscountType === "senior") {
+        const uploads: Promise<void>[] = [];
+
+        seniorIdFiles.slice(0, seniorIdUploadCount).forEach((file, index) => {
+          if (!file) return;
+          uploads.push(
+            uploadDiscountId({
+              bookingId: result.booking.id,
+              file,
+              discountType: "Senior",
+              slotNumber: index + 1,
+            }),
+          );
+        });
+
+        pwdIdFiles.slice(0, pwdIdUploadCount).forEach((file, index) => {
+          if (!file) return;
+          uploads.push(
+            uploadDiscountId({
+              bookingId: result.booking.id,
+              file,
+              discountType: "PWD",
+              slotNumber: index + 1,
+            }),
+          );
+        });
+
+        await Promise.all(uploads);
+      }
 
       setCreatedBooking({
         id: result.booking.id,
@@ -805,6 +965,79 @@ export default function BookRoomModal({
                   </div>
                 )}
 
+                {activeDiscountType === "senior" && (
+                  <div className="p-4 rounded-xl border border-blue-100 bg-blue-50/50 space-y-4">
+                    <div>
+                      <h4 className="text-xs font-bold uppercase text-[#0A1A44] mb-1">
+                        Upload Discount IDs
+                      </h4>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        One eligible guest needs 1 ID upload. Two or more
+                        eligible guests need 2 ID uploads. Accepted formats:
+                        JPEG, PNG, WEBP, or PDF. Maximum file size: 5 MB.
+                      </p>
+                    </div>
+
+                    {seniors > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-[10px] font-bold uppercase text-slate-500">
+                            Senior Citizen IDs
+                          </p>
+                          <span className="rounded-full bg-blue-100 px-2 py-1 text-[10px] font-bold text-blue-700">
+                            {seniorIdUploadCount} required
+                          </span>
+                        </div>
+                        {Array.from({ length: seniorIdUploadCount }).map(
+                          (_, index) => (
+                            <DiscountIdUpload
+                              key={`senior-${index}`}
+                              label={`Senior Citizen ID ${index + 1}`}
+                              file={seniorIdFiles[index] || null}
+                              onFileChange={(event) =>
+                                handleDiscountIdFileChange(
+                                  event,
+                                  setSeniorIdFiles,
+                                  index,
+                                )
+                              }
+                            />
+                          ),
+                        )}
+                      </div>
+                    )}
+
+                    {pwds > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-[10px] font-bold uppercase text-slate-500">
+                            PWD IDs
+                          </p>
+                          <span className="rounded-full bg-blue-100 px-2 py-1 text-[10px] font-bold text-blue-700">
+                            {pwdIdUploadCount} required
+                          </span>
+                        </div>
+                        {Array.from({ length: pwdIdUploadCount }).map(
+                          (_, index) => (
+                            <DiscountIdUpload
+                              key={`pwd-${index}`}
+                              label={`PWD ID ${index + 1}`}
+                              file={pwdIdFiles[index] || null}
+                              onFileChange={(event) =>
+                                handleDiscountIdFileChange(
+                                  event,
+                                  setPwdIdFiles,
+                                  index,
+                                )
+                              }
+                            />
+                          ),
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                   <label className="text-xs font-bold text-[#0A1A44] uppercase tracking-wider mb-2 flex items-center gap-1">
                     <Tag className="w-3 h-3" /> Promo Code
@@ -956,5 +1189,40 @@ export default function BookRoomModal({
         />
       )}
     </>
+  );
+}
+
+function DiscountIdUpload({
+  label,
+  file,
+  onFileChange,
+}: {
+  label: string;
+  file: File | null;
+  onFileChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <label className="block rounded-xl border border-slate-200 bg-white p-3">
+      <span className="mb-2 block text-[10px] font-bold uppercase text-slate-500">
+        {label} <span className="text-red-500">*</span>
+      </span>
+      <input
+        type="file"
+        accept="image/jpeg,image/png,image/webp,application/pdf"
+        className="hidden"
+        onChange={onFileChange}
+      />
+      <span
+        className="flex min-h-20 w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-center transition hover:border-[#0A1A44] hover:bg-blue-50"
+      >
+        <Upload className="h-5 w-5 text-slate-400" />
+        <span className="text-xs font-bold text-slate-600">
+          {file ? file.name : "Upload JPEG, PNG, WEBP, or PDF"}
+        </span>
+        <span className="text-[10px] font-medium text-slate-400">
+          Max 5 MB
+        </span>
+      </span>
+    </label>
   );
 }

@@ -17,7 +17,8 @@ export async function GET() {
         *,
         users (full_name, email, phone),
         room_types (name),
-        payments (id, amount, status, proof_url, payment_method, created_at, description)
+        payments (id, amount, status, proof_url, payment_method, created_at, description),
+        booking_discounts (id, guest_name, discount_type, id_number, id_image_url, verification_status, created_at)
       `,
       )
       .order("created_at", { ascending: false });
