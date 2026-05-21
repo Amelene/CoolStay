@@ -1,34 +1,26 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Plus,
-  AlertTriangle,
-  Search,
-  Loader2,
-  Box,
-  ArrowUpDown,
-  History,
-  Package,
-  FileText,
-  Download,
-  Calendar,
-  Filter,
-  ArrowUpCircle,
   ArrowDownCircle,
+  ArrowUpCircle,
+  Download,
+  FileText,
+  Loader2,
+  Package,
+  Plus,
+  Save,
+  Search,
+  Trash2,
 } from "lucide-react";
-import AddSupplyModal from "@/components/admin/inventory/AddSupplyModal";
-import AdjustStockModal from "@/components/admin/inventory/AdjustStockModal";
-import InventoryLogs from "@/components/admin/inventory/InventoryLogs";
-import { toast } from "sonner";
-import { createClient } from "@/lib/supabase/client";
 import { pdf } from "@react-pdf/renderer";
 import { saveAs } from "file-saver";
+import { toast } from "sonner";
+import AddSupplyModal from "@/components/admin/inventory/AddSupplyModal";
 import CurrentStockReport, {
   CurrentStockReportData,
 } from "@/components/pdf/CurrentStockReport";
 
-// --- TYPES ---
 type SupplyItem = {
   id: string;
   item_name: string;
@@ -36,58 +28,101 @@ type SupplyItem = {
   current_stock: number;
   minimum_stock: number;
   unit: string;
-  last_restocked: string;
+  last_restocked: string | null;
   stock_in?: number;
   stock_out?: number;
+};
+
+type InventoryLog = {
+  id: string;
+  supply_id: string;
+  usage_date: string;
+  purpose: string;
+  quantity_used: number;
+  used_by: string;
+  notes: string | null;
 };
 
 type ReportItem = {
   id: string;
   generated_at: string;
   report_content: string;
-  created_by?: string;
+};
+
+const toDateTimeLocal = (date: Date) => {
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 16);
 };
 
 export default function InventoryPage() {
-  const [activeTab, setActiveTab] = useState<"stock" | "logs" | "reports">(
-    "stock",
-  );
   const [items, setItems] = useState<SupplyItem[]>([]);
   const [reports, setReports] = useState<ReportItem[]>([]);
+  const [history, setHistory] = useState<InventoryLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
-
-  // --- NEW: Advanced Filter & Sort States ---
-  const [search, setSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string>("All");
-  const [sortBy, setSortBy] = useState<string>("name-asc");
-
-  // Modal States
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [adjustItem, setAdjustItem] = useState<SupplyItem | null>(null);
+  const [selectedItemId, setSelectedItemId] = useState("");
+  const [transactionType, setTransactionType] = useState<"restock" | "usage">(
+    "restock",
+  );
+  const [quantity, setQuantity] = useState(1);
+  const [remarks, setRemarks] = useState("");
+  const [transactionDate, setTransactionDate] = useState(
+    toDateTimeLocal(new Date()),
+  );
+  const [itemSearch, setItemSearch] = useState("");
+  const [historySearch, setHistorySearch] = useState("");
+
+  const selectedItem = items.find((item) => item.id === selectedItemId) || null;
 
   const fetchInventory = async () => {
     try {
       const res = await fetch("/api/admin/inventory");
       const data = await res.json();
-      if (res.ok) setItems(data);
+      if (!res.ok) throw new Error(data.error || "Failed to load inventory");
+
+      setItems(data);
+      setSelectedItemId((current) =>
+        data?.some((item: SupplyItem) => item.id === current)
+          ? current
+          : data?.[0]?.id || "",
+      );
     } catch (error) {
-      console.error("Failed to load inventory", error);
+      console.error(error);
+      toast.error("Unable to load inventory");
     } finally {
       setLoading(false);
     }
   };
 
   const fetchReports = async () => {
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("analytics_reports")
-      .select("id, generated_at, report_content")
-      .eq("report_type", "Inventory Stock Snapshot")
-      .order("generated_at", { ascending: false });
+    const res = await fetch("/api/admin/inventory/report", { method: "GET" });
+    if (res.ok) {
+      const data = await res.json();
+      setReports(data);
+    }
+  };
 
-    if (data) setReports(data);
+  const fetchHistory = async (supplyId: string) => {
+    if (!supplyId) return;
+    setHistoryLoading(true);
+
+    try {
+      const res = await fetch(
+        `/api/admin/inventory/logs?supply_id=${encodeURIComponent(supplyId)}&order=asc`,
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load history");
+      setHistory(data);
+    } catch (error) {
+      console.error(error);
+      toast.error("Unable to load item history");
+    } finally {
+      setHistoryLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -95,51 +130,135 @@ export default function InventoryPage() {
     fetchReports();
   }, []);
 
+  useEffect(() => {
+    if (selectedItemId) {
+      fetchHistory(selectedItemId);
+    } else {
+      setHistory([]);
+    }
+  }, [selectedItemId]);
+
+  const itemTotals = useMemo(() => {
+    const stockIn = history.reduce(
+      (sum, log) =>
+        log.purpose === "Restock" ? sum + Number(log.quantity_used || 0) : sum,
+      0,
+    );
+    const stockOut = history.reduce(
+      (sum, log) =>
+        log.purpose === "Restock" ? sum : sum + Number(log.quantity_used || 0),
+      0,
+    );
+    const opening = selectedItem
+      ? selectedItem.current_stock - stockIn + stockOut
+      : 0;
+
+    return { stockIn, stockOut, opening };
+  }, [history, selectedItem]);
+
+  const filteredHistory = useMemo(() => {
+    const query = historySearch.trim().toLowerCase();
+    if (!query) return history;
+
+    return history.filter((log) => {
+      const text = [
+        log.purpose,
+        log.quantity_used,
+        log.notes || "",
+        log.used_by || "",
+        new Date(log.usage_date).toLocaleString("en-US"),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return text.includes(query);
+    });
+  }, [history, historySearch]);
+
+  const filteredItems = useMemo(() => {
+    const query = itemSearch.trim().toLowerCase();
+    if (!query) return items;
+
+    return items.filter((item) =>
+      [
+        item.item_name,
+        item.category,
+        item.unit,
+        item.current_stock,
+        item.minimum_stock,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [items, itemSearch]);
+
+  const handleSaveTransaction = async () => {
+    if (!selectedItem) return toast.error("Please select an item.");
+    if (quantity <= 0) return toast.error("Quantity must be greater than 0.");
+    if (transactionType === "usage" && quantity > selectedItem.current_stock) {
+      return toast.error("Not enough stock for this OUT transaction.");
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/admin/inventory/adjust", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          supply_id: selectedItem.id,
+          type: transactionType,
+          quantity,
+          notes: remarks.trim() || null,
+          usage_date: new Date(transactionDate).toISOString(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save transaction");
+
+      toast.success("Inventory transaction saved.");
+      setQuantity(1);
+      setRemarks("");
+      setTransactionDate(toDateTimeLocal(new Date()));
+      await fetchInventory();
+      await fetchHistory(selectedItem.id);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Transaction failed");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleGenerateReport = async () => {
     setIsGenerating(true);
-    const toastId = toast.loading("Taking inventory snapshot...");
+    const toastId = toast.loading("Saving inventory snapshot...");
 
     try {
       const res = await fetch("/api/admin/inventory/report", {
         method: "POST",
       });
-      if (!res.ok) throw new Error("Failed");
-
-      toast.success("Snapshot saved to Reports tab!", { id: toastId });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to save snapshot");
+      toast.success("Snapshot saved.", { id: toastId });
       await fetchReports();
-      setActiveTab("reports");
     } catch (error) {
       console.error(error);
-      toast.error("Failed to generate report", { id: toastId });
+      toast.error("Failed to save snapshot", { id: toastId });
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const handleDownloadCurrentView = async () => {
+  const handleDownloadCurrentStock = async () => {
     setIsGenerating(true);
-    const toastId = toast.loading("Building PDF from current view...");
-    try {
-      // Build human-readable filter label for the PDF header
-      const parts: string[] = [];
-      if (selectedCategory !== "All") parts.push(`Category: ${selectedCategory}`);
-      if (search) parts.push(`Search: "${search}"`);
-      const sortLabels: Record<string, string> = {
-        "name-asc": "Name A→Z",
-        "name-desc": "Name Z→A",
-        "stock-asc": "Stock Low→High",
-        "stock-desc": "Stock High→Low",
-      };
-      if (sortBy !== "name-asc") parts.push(`Sort: ${sortLabels[sortBy] ?? sortBy}`);
+    const toastId = toast.loading("Building inventory PDF...");
 
-      const lowStockCount = processedItems.filter(
-        (i) => i.current_stock <= i.minimum_stock
-      ).length;
-      const totalStockIn = processedItems.reduce(
+    try {
+      const totalStockIn = items.reduce(
         (sum, item) => sum + (item.stock_in || 0),
         0,
       );
-      const totalStockOut = processedItems.reduce(
+      const totalStockOut = items.reduce(
         (sum, item) => sum + (item.stock_out || 0),
         0,
       );
@@ -152,15 +271,16 @@ export default function InventoryPage() {
           hour: "2-digit",
           minute: "2-digit",
         }),
-        generatedBy: "Admin (Filtered View)",
-        filterLabel: parts.length > 0 ? parts.join(" • ") : undefined,
+        generatedBy: "Admin",
         summary: {
-          totalItems: processedItems.length,
-          lowStockCount,
+          totalItems: items.length,
+          lowStockCount: items.filter(
+            (item) => item.current_stock <= item.minimum_stock,
+          ).length,
           totalStockIn,
           totalStockOut,
         },
-        items: processedItems.map((item) => ({
+        items: items.map((item) => ({
           item_name: item.item_name,
           category: item.category,
           current_stock: item.current_stock,
@@ -172,553 +292,598 @@ export default function InventoryPage() {
       };
 
       const blob = await pdf(<CurrentStockReport data={reportData} />).toBlob();
-      const dateStr = new Date().toISOString().slice(0, 10);
-      const suffix = selectedCategory !== "All" ? `_${selectedCategory.replace(/\s+/g, "_")}` : "";
-      saveAs(blob, `Stock_View${suffix}_${dateStr}.pdf`);
-      toast.success("PDF downloaded!", { id: toastId });
+      const date = new Date().toISOString().slice(0, 10);
+      saveAs(blob, `CoolStay_Inventory_Stock_Summary_${date}.pdf`);
+      toast.success("Inventory PDF downloaded.", { id: toastId });
     } catch (error) {
       console.error(error);
-      toast.error("Error generating PDF", { id: toastId });
+      toast.error("Failed to generate PDF", { id: toastId });
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const handleDownloadReport = async (
-    content: string,
-    id: string,
-    date: string,
-  ) => {
-    setDownloadingId(id);
+  const handleDownloadSelectedItem = async () => {
+    if (!selectedItem) return toast.error("Please select an item.");
+
+    setIsGenerating(true);
+    const toastId = toast.loading("Building item PDF...");
+
     try {
-      const parsedData: CurrentStockReportData = JSON.parse(content);
-      const blob = await pdf(<CurrentStockReport data={parsedData} />).toBlob();
+      const reportData: CurrentStockReportData = {
+        generatedAt: new Date().toLocaleString("en-US", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        generatedBy: "Admin",
+        filterLabel: selectedItem.item_name,
+        summary: {
+          totalItems: 1,
+          lowStockCount:
+            selectedItem.current_stock <= selectedItem.minimum_stock ? 1 : 0,
+          totalStockIn: itemTotals.stockIn,
+          totalStockOut: itemTotals.stockOut,
+        },
+        items: [
+          {
+            item_name: selectedItem.item_name,
+            category: selectedItem.category,
+            current_stock: selectedItem.current_stock,
+            minimum_stock: selectedItem.minimum_stock,
+            unit: selectedItem.unit,
+            stock_in: itemTotals.stockIn,
+            stock_out: itemTotals.stockOut,
+          },
+        ],
+        history,
+      };
+
+      const blob = await pdf(<CurrentStockReport data={reportData} />).toBlob();
+      const date = new Date().toISOString().slice(0, 10);
       saveAs(
         blob,
-        `Stock_Report_${new Date(date).toISOString().slice(0, 10)}.pdf`,
+        `CoolStay_${selectedItem.item_name.replace(/\s+/g, "_")}_Inventory_${date}.pdf`,
       );
-      toast.success("Download started");
+      toast.success("Item PDF downloaded.", { id: toastId });
     } catch (error) {
       console.error(error);
-      toast.error("Error downloading file");
+      toast.error("Failed to generate item PDF", { id: toastId });
     } finally {
-      setDownloadingId(null);
+      setIsGenerating(false);
     }
   };
 
-  // --- NEW: Dynamic Categories Extraction ---
-  const categories = useMemo(() => {
-    const cats = items.map((item) => item.category);
-    return ["All", ...Array.from(new Set(cats))];
-  }, [items]);
+  const handleDownloadSnapshot = async (report: ReportItem) => {
+    try {
+      const reportData = JSON.parse(report.report_content) as CurrentStockReportData;
+      const blob = await pdf(<CurrentStockReport data={reportData} />).toBlob();
+      const date = new Date(report.generated_at).toISOString().slice(0, 10);
 
-  // --- NEW: High-Performance Filter & Sort Pipeline ---
-  const processedItems = useMemo(() => {
-    let result = [...items];
-
-    // 1. Apply Search
-    if (search) {
-      const lowerSearch = search.toLowerCase();
-      result = result.filter(
-        (item) =>
-          item.item_name.toLowerCase().includes(lowerSearch) ||
-          item.category.toLowerCase().includes(lowerSearch),
+      saveAs(
+        blob,
+        `CoolStay_Inventory_Snapshot_${date}.pdf`,
       );
+    } catch (error) {
+      console.error(error);
+      toast.error("Unable to download this snapshot.");
     }
+  };
 
-    // 2. Apply Category Filter
-    if (selectedCategory !== "All") {
-      result = result.filter((item) => item.category === selectedCategory);
+  const handleDeleteItem = async () => {
+    if (!selectedItem) return toast.error("Please select an item.");
+
+    const hasTransactions = history.length > 0;
+    const confirmed = window.confirm(
+      hasTransactions
+        ? `Archive ${selectedItem.item_name}? Its transaction history and snapshots will be kept.`
+        : `Delete ${selectedItem.item_name}? This item has no transaction history.`,
+    );
+
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/inventory/${selectedItem.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Unable to update item");
+
+      toast.success(
+        data.action === "archived" ? "Item archived." : "Item deleted.",
+      );
+      await fetchInventory();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Item update failed");
+    } finally {
+      setIsDeleting(false);
     }
+  };
 
-    // 3. Apply Sorting
-    result.sort((a, b) => {
-      switch (sortBy) {
-        case "name-asc":
-          return a.item_name.localeCompare(b.item_name);
-        case "name-desc":
-          return b.item_name.localeCompare(a.item_name);
-        case "stock-asc":
-          return a.current_stock - b.current_stock;
-        case "stock-desc":
-          return b.current_stock - a.current_stock;
-        default:
-          return 0;
-      }
-    });
-
-    return result;
-  }, [items, search, selectedCategory, sortBy]);
-
-  const lowStockCount = items.filter(
-    (i) => i.current_stock <= i.minimum_stock,
-  ).length;
-  const totalStockIn = items.reduce((sum, item) => sum + (item.stock_in || 0), 0);
-  const totalStockOut = items.reduce(
-    (sum, item) => sum + (item.stock_out || 0),
-    0,
-  );
+  let runningBalance = itemTotals.opening;
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-[#F0F8FF] p-8 -m-6 font-sans text-slate-800">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
-        <div>
-          <h1 className="text-3xl font-serif font-bold text-[#0A1A44]">
-            Inventory Management
-          </h1>
-          <p className="text-slate-500 text-sm">
-            Track daily supplies, toiletries, and cleaning kits.
-          </p>
+    <div className="-m-6 min-h-[calc(100vh-4rem)] bg-slate-50 p-6 text-slate-800">
+      <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="mt-1 rounded-lg bg-blue-50 p-2 text-blue-700">
+            <Package className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-serif font-bold text-[#0A1A44]">
+              Inventory Management
+            </h1>
+            <p className="text-sm text-slate-500">
+              Track incoming and outgoing items with a full transaction history.
+            </p>
+          </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <button
             onClick={() => setIsAddOpen(true)}
-            className="bg-[#0A1A44] hover:bg-blue-900 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md flex items-center gap-2 active:scale-95 transition-all"
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
           >
-            <Plus className="w-4 h-4" /> Add New Item
+            <Plus className="h-4 w-4" />
+            Add Item
+          </button>
+          <button
+            onClick={handleDownloadSelectedItem}
+            disabled={isGenerating || !selectedItem}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" />
+            Item PDF
+          </button>
+          <button
+            onClick={handleGenerateReport}
+            disabled={isGenerating || items.length === 0}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#0A1A44] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-950 disabled:opacity-50"
+          >
+            {isGenerating ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="h-4 w-4" />
+            )}
+            Save Snapshot
           </button>
         </div>
       </div>
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-8">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
-          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-            <Box className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-slate-400 uppercase">
-              Total Items
-            </p>
-            <p className="text-2xl font-bold text-slate-800">{items.length}</p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
-          <div className="p-3 bg-green-50 text-green-600 rounded-xl">
-            <ArrowUpCircle className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-slate-400 uppercase">
-              Stock In
-            </p>
-            <p className="text-2xl font-bold text-green-600">
-              {totalStockIn}
-            </p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
-          <div className="p-3 bg-red-50 text-red-600 rounded-xl">
-            <ArrowDownCircle className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-slate-400 uppercase">
-              Stock Out
-            </p>
-            <p className="text-2xl font-bold text-red-600">
-              {totalStockOut}
-            </p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
-          <div
-            className={`p-3 rounded-xl ${lowStockCount > 0 ? "bg-red-50 text-red-600" : "bg-green-50 text-green-600"}`}
-          >
-            <AlertTriangle className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-slate-400 uppercase">
-              Low Stock Alerts
-            </p>
-            <p
-              className={`text-2xl font-bold ${lowStockCount > 0 ? "text-red-600" : "text-slate-800"}`}
-            >
-              {lowStockCount}
-            </p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
-          <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
-            <FileText className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-slate-400 uppercase">
-              Saved Reports
-            </p>
-            <p className="text-2xl font-bold text-slate-800">
-              {reports.length}
-            </p>
-          </div>
-        </div>
-      </div>
-      {/* Navigation Tabs */}
-      <div className="flex gap-1 mb-6 bg-white p-1 rounded-2xl border border-slate-200 w-fit shadow-sm">
-        <button
-          onClick={() => setActiveTab("stock")}
-          className={`px-6 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all ${activeTab === "stock" ? "bg-[#0A1A44] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
-        >
-          <Package className="w-4 h-4" /> Current Stock
-        </button>
-        <button
-          onClick={() => setActiveTab("logs")}
-          className={`px-6 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all ${activeTab === "logs" ? "bg-[#0A1A44] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
-        >
-          <History className="w-4 h-4" /> Usage History
-        </button>
-        <button
-          onClick={() => setActiveTab("reports")}
-          className={`px-6 py-2.5 text-sm font-bold rounded-xl flex items-center gap-2 transition-all ${activeTab === "reports" ? "bg-[#0A1A44] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
-        >
-          <FileText className="w-4 h-4" /> Saved Reports
-        </button>
-      </div>
-      {/* --- CONTENT AREA --- */}
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden min-h-125">
-        {/* TAB 1: CURRENT STOCK */}
-        {activeTab === "stock" && (
-          <>
-            <div className="p-4 border-b border-slate-100 flex flex-col lg:flex-row gap-4 justify-between items-center bg-slate-50/50">
-              {/* --- NEW: Advanced Control Panel --- */}
-              <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
-                {/* Search */}
-                <div className="relative flex-1 sm:min-w-62.5">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                  <input
-                    placeholder="Search supplies..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-full pl-10 p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all shadow-sm"
-                  />
-                </div>
 
-                {/* Category Filter */}
-                <div className="relative flex-1 sm:min-w-45 flex items-center">
-                  <Filter className="absolute left-3 w-4 h-4 text-slate-400 pointer-events-none" />
-                  <select
-                    value={selectedCategory}
-                    onChange={(e) => setSelectedCategory(e.target.value)}
-                    className="w-full pl-10 p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-600 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all shadow-sm cursor-pointer appearance-none"
+      <div className="grid gap-4 xl:grid-cols-[300px_1fr_330px]">
+        <section className="overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 p-4">
+            <h2 className="text-sm font-bold text-[#0A1A44]">Items</h2>
+            <div className="relative mt-3">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={itemSearch}
+                onChange={(event) => setItemSearch(event.target.value)}
+                placeholder="Search items"
+                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+          </div>
+          <div className="max-h-[460px] overflow-y-auto p-2">
+            {loading ? (
+              <div className="px-3 py-10 text-center text-sm text-slate-400">
+                <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                Loading items...
+              </div>
+            ) : items.length === 0 ? (
+              <div className="px-3 py-10 text-center text-sm text-slate-400">
+                No inventory items yet.
+              </div>
+            ) : filteredItems.length === 0 ? (
+              <div className="px-3 py-10 text-center text-sm text-slate-400">
+                No items match your search.
+              </div>
+            ) : (
+              filteredItems.map((item) => {
+                const isSelected = item.id === selectedItemId;
+                const isLowStock = item.current_stock <= item.minimum_stock;
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setSelectedItemId(item.id)}
+                    className={`mb-2 w-full rounded-lg border p-3 text-left transition ${
+                      isSelected
+                        ? "border-blue-500 bg-blue-50 shadow-sm"
+                        : "border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50"
+                    }`}
                   >
-                    {categories.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-slate-800">
+                          {item.item_name}
+                        </p>
+                        <p className="truncate text-xs text-slate-400">
+                          {item.category}
+                        </p>
+                      </div>
+                      <span
+                        className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
+                          isLowStock
+                            ? "bg-red-50 text-red-700"
+                            : "bg-emerald-50 text-emerald-700"
+                        }`}
+                      >
+                        {isLowStock ? "Low" : "OK"}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex items-end justify-between">
+                      <p className="text-xs font-bold uppercase text-slate-400">
+                        Stock
+                      </p>
+                      <p className="text-lg font-black text-slate-900">
+                        {item.current_stock}
+                        <span className="ml-1 text-xs font-bold text-slate-500">
+                          {item.unit}
+                        </span>
+                      </p>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
+          <div className="p-5">
+              <h2 className="mb-4 text-sm font-bold text-[#0A1A44]">
+                Transaction Details
+              </h2>
+              <div className="mb-4 inline-grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-1 text-xs font-bold">
+                <button
+                  onClick={() => setTransactionType("restock")}
+                  className={`rounded-md px-10 py-2 ${
+                    transactionType === "restock"
+                      ? "bg-blue-600 text-white"
+                      : "text-slate-600"
+                  }`}
+                >
+                  IN
+                </button>
+                <button
+                  onClick={() => setTransactionType("usage")}
+                  className={`rounded-md px-10 py-2 ${
+                    transactionType === "usage"
+                      ? "bg-blue-600 text-white"
+                      : "text-slate-600"
+                  }`}
+                >
+                  OUT
+                </button>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Item" required>
+                  <select
+                    value={selectedItemId}
+                    onChange={(event) => setSelectedItemId(event.target.value)}
+                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  >
+                    {items.length === 0 && <option value="">No items</option>}
+                    {items.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.item_name}
                       </option>
                     ))}
                   </select>
-                </div>
-
-                {/* Sorting */}
-                <div className="relative flex-1 sm:min-w-45 flex items-center">
-                  <ArrowUpDown className="absolute left-3 w-4 h-4 text-slate-400 pointer-events-none" />
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                    className="w-full pl-10 p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-600 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all shadow-sm cursor-pointer appearance-none"
-                  >
-                    <option value="name-asc">Name (A-Z)</option>
-                    <option value="name-desc">Name (Z-A)</option>
-                    <option value="stock-asc">Stock (Low to High)</option>
-                    <option value="stock-desc">Stock (High to Low)</option>
-                  </select>
-                </div>
+                </Field>
+                <Field label="Quantity" required>
+                  <div className="flex h-11 overflow-hidden rounded-lg border border-slate-200 bg-white">
+                    <input
+                      type="number"
+                      min={1}
+                      value={quantity}
+                      onChange={(event) =>
+                        setQuantity(Math.max(1, Number(event.target.value) || 1))
+                      }
+                      className="min-w-0 flex-1 px-3 text-sm font-medium outline-none"
+                    />
+                    <div className="flex w-16 items-center justify-center border-l border-slate-200 bg-slate-50 text-xs font-bold text-slate-500">
+                      {selectedItem?.unit || "pcs"}
+                    </div>
+                  </div>
+                </Field>
+                <Field label="Date & Time" required>
+                  <input
+                    type="datetime-local"
+                    value={transactionDate}
+                    onChange={(event) => setTransactionDate(event.target.value)}
+                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  />
+                </Field>
+                <Field label="Remarks">
+                  <input
+                    value={remarks}
+                    onChange={(event) => setRemarks(event.target.value)}
+                    placeholder={
+                      transactionType === "usage"
+                        ? "e.g. Issued to Room 201"
+                        : "e.g. Checked in from Supplier A"
+                    }
+                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  />
+                </Field>
               </div>
 
-              {/* ACTION BUTTONS */}
-              <div className="flex gap-2 shrink-0 w-full lg:w-auto">
-                {/* Download Current View — reflects active filters */}
+              <div className="mt-5 flex justify-end">
                 <button
-                  onClick={handleDownloadCurrentView}
-                  disabled={isGenerating || processedItems.length === 0}
-                  title="Download a PDF of the currently filtered view"
-                  className="flex-1 lg:flex-none bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all"
+                  onClick={handleSaveTransaction}
+                  disabled={submitting || loading || !selectedItem}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {isGenerating ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                  {submitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
-                    <Download className="w-4 h-4" />
+                    <Save className="h-4 w-4" />
                   )}
-                  Download View ({processedItems.length})
-                </button>
-
-                {/* Save Snapshot — always saves ALL items to DB */}
-                <button
-                  onClick={handleGenerateReport}
-                  disabled={isGenerating}
-                  title="Save a full snapshot of all inventory to the Reports tab"
-                  className="flex-1 lg:flex-none bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-all disabled:opacity-50 shrink-0"
-                >
-                  {isGenerating ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <FileText className="w-4 h-4" />
-                  )}
-                  Save Snapshot
+                  Save Transaction
                 </button>
               </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-100">
-                  <tr>
-                    <th className="px-6 py-4">Item Name</th>
-                    <th className="px-6 py-4">Category</th>
-                    <th className="px-6 py-4 text-center">In</th>
-                    <th className="px-6 py-4 text-center">Out</th>
-                    <th className="px-6 py-4">Stock Level</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {loading ? (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="p-12 text-center text-slate-400"
-                      >
-                        <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
-                        Loading inventory...
-                      </td>
-                    </tr>
-                  ) : processedItems.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="p-16 text-center">
-                        <div className="mx-auto w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-3">
-                          <Package className="w-8 h-8 text-slate-300" />
-                        </div>
-                        <p className="text-slate-500 font-bold">
-                          No items found.
-                        </p>
-                        <p className="text-slate-400 text-xs mt-1">
-                          Try adjusting your search or filters.
-                        </p>
-                      </td>
-                    </tr>
-                  ) : (
-                    processedItems.map((item) => {
-                      const isLow = item.current_stock <= item.minimum_stock;
-                      return (
-                        <tr
-                          key={item.id}
-                          className="hover:bg-slate-50/50 transition-colors group"
-                        >
-                          <td className="px-6 py-4">
-                            <p className="font-bold text-slate-700">
-                              {item.item_name}
-                            </p>
-                            <p className="text-[10px] text-slate-400 font-mono">
-                              ID: {item.id.substring(0, 6)}
-                            </p>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider">
-                              {item.category}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            <span className="text-sm font-bold text-green-600">
-                              {item.stock_in || 0}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            <span className="text-sm font-bold text-red-600">
-                              {item.stock_out || 0}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`text-lg font-bold ${isLow ? "text-red-600" : "text-slate-700"}`}
-                              >
-                                {item.current_stock}
-                              </span>
-                              <span className="text-xs text-slate-400 font-medium">
-                                {item.unit}
-                              </span>
-                              {isLow && (
-                                <span className="bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">
-                                  Low Stock
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <button
-                              onClick={() => setAdjustItem(item)}
-                              className="bg-white border border-slate-200 hover:border-blue-500 hover:text-blue-600 text-slate-600 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all flex items-center gap-2 ml-auto"
-                            >
-                              <ArrowUpDown className="w-3.5 h-3.5" /> Adjust
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-
-        {/* TAB 2 & 3 remain completely unchanged */}
-        {activeTab === "logs" && (
-          <div className="p-6">
-            <InventoryLogs />
           </div>
-        )}
+        </section>
 
-        {activeTab === "reports" && (
-          <div className="p-6">
-            {/* Same report render logic as before... */}
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h3 className="text-xl font-bold text-[#0A1A44]">
-                  Saved Snapshots
-                </h3>
-                <p className="text-sm text-slate-500">
-                  Historical records of inventory levels.
+        <aside>
+          <section className="rounded-xl border border-blue-200 bg-white p-5 shadow-sm">
+            <h2 className="mb-4 text-sm font-bold text-[#0A1A44]">
+              Current Stock Summary
+            </h2>
+            <p className="text-xs font-bold uppercase text-slate-400">Item</p>
+            <p className="mb-4 text-lg font-black text-slate-900">
+              {selectedItem?.item_name || "No item selected"}
+            </p>
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+              <p className="text-xs font-bold text-slate-600">Current Stock</p>
+              <p className="mt-1 text-3xl font-black text-emerald-700">
+                {selectedItem?.current_stock ?? 0}
+                <span className="ml-1 text-sm">{selectedItem?.unit || "pcs"}</span>
+              </p>
+              <p className="mt-1 text-xs text-emerald-700">
+                Based on all IN and OUT transactions
+              </p>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-center">
+                <p className="text-xs font-bold text-emerald-700">Total IN</p>
+                <p className="text-xl font-black text-emerald-700">
+                  {itemTotals.stockIn}
+                </p>
+              </div>
+              <div className="rounded-lg border border-red-100 bg-red-50 p-3 text-center">
+                <p className="text-xs font-bold text-red-700">Total OUT</p>
+                <p className="text-xl font-black text-red-700">
+                  {itemTotals.stockOut}
                 </p>
               </div>
             </div>
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-center text-xs font-bold text-slate-600">
+              Current Stock = Opening + Total IN - Total OUT
+              <br />
+              {selectedItem?.current_stock ?? 0} = {itemTotals.opening} +{" "}
+              {itemTotals.stockIn} - {itemTotals.stockOut}
+            </div>
+            <button
+              onClick={handleDeleteItem}
+              disabled={!selectedItem || isDeleting}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-bold text-red-700 hover:bg-red-50 disabled:opacity-50"
+            >
+              {isDeleting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              {history.length > 0 ? "Archive Item" : "Delete Item"}
+            </button>
+          </section>
+        </aside>
+      </div>
 
-            {reports.length === 0 ? (
-              <div className="text-center py-20 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                <p className="text-slate-500 font-medium">
-                  No reports saved yet.
-                </p>
-                <button
-                  onClick={() => setActiveTab("stock")}
-                  className="text-blue-600 text-sm font-bold hover:underline mt-2"
-                >
-                  Go to Stock to create one
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {reports.map((report) => {
-                  let stats = {
-                    totalItems: 0,
-                    lowStockCount: 0,
-                    totalStockIn: 0,
-                    totalStockOut: 0,
-                  };
-                  try {
-                    const parsed = JSON.parse(report.report_content);
-                    stats = parsed.summary || stats;
-                  } catch (e) {
-                    console.error("JSON Parse error", e);
-                  }
+      <section className="mt-4 overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-bold text-[#0A1A44]">
+              Selected Item Transaction History
+            </h2>
+            <p className="text-xs text-slate-500">
+              Detailed history of all IN and OUT transactions for the selected
+              item.
+            </p>
+          </div>
+          <div className="relative sm:w-72">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={historySearch}
+              onChange={(event) => setHistorySearch(event.target.value)}
+              placeholder="Search this audit trail"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase text-slate-500">
+              <tr>
+                <th className="px-4 py-3">#</th>
+                <th className="px-4 py-3">Date & Time</th>
+                <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">Item</th>
+                <th className="px-4 py-3 text-right">Quantity</th>
+                <th className="px-4 py-3 text-right">Balance After</th>
+                <th className="px-4 py-3">Remarks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {historyLoading ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                    <Loader2 className="mx-auto mb-2 h-6 w-6 animate-spin" />
+                    Loading audit trail...
+                  </td>
+                </tr>
+              ) : filteredHistory.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                    No transaction history found for this item.
+                  </td>
+                </tr>
+              ) : (
+                filteredHistory.map((log, index) => {
+                  const isIn = log.purpose === "Restock";
+                  const qty = Number(log.quantity_used || 0);
+                  runningBalance = isIn
+                    ? runningBalance + qty
+                    : runningBalance - qty;
 
                   return (
-                    <div
-                      key={report.id}
-                      className="bg-white border border-slate-200 rounded-2xl p-5 hover:shadow-md transition-all group flex flex-col justify-between h-full"
-                    >
-                      <div>
-                        <div className="flex justify-between items-start mb-4">
-                          <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
-                            <FileText className="w-5 h-5" />
-                          </div>
-                          <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100">
-                            SNAPSHOT
-                          </span>
-                        </div>
-
-                        <h4 className="font-bold text-[#0A1A44] text-lg mb-1">
-                          {new Date(report.generated_at).toLocaleDateString(
-                            "en-US",
-                            { month: "short", day: "numeric", year: "numeric" },
+                    <tr key={log.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 text-slate-500">{index + 1}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                        {new Date(log.usage_date).toLocaleString("en-US", {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${
+                            isIn
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-red-50 text-red-700"
+                          }`}
+                        >
+                          {isIn ? (
+                            <ArrowDownCircle className="h-3 w-3" />
+                          ) : (
+                            <ArrowUpCircle className="h-3 w-3" />
                           )}
-                        </h4>
-                        <p className="text-xs text-slate-400 mb-4 flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />{" "}
-                          {new Date(report.generated_at).toLocaleTimeString(
-                            [],
-                            { hour: "2-digit", minute: "2-digit" },
-                          )}
-                        </p>
-
-                        <div className="flex gap-4 mb-4 text-sm">
-                          <div>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase">
-                              Items
-                            </p>
-                            <p className="font-bold text-slate-700">
-                              {stats.totalItems}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase">
-                              Low Stock
-                            </p>
-                            <div className="flex items-center gap-1">
-                              <p
-                                className={`font-bold ${stats.lowStockCount > 0 ? "text-red-600" : "text-green-600"}`}
-                              >
-                                {stats.lowStockCount}
-                              </p>
-                              {stats.lowStockCount > 0 && (
-                                <AlertTriangle className="w-3 h-3 text-red-500" />
-                              )}
-                            </div>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase">
-                              In
-                            </p>
-                            <p className="font-bold text-green-600">
-                              {stats.totalStockIn || 0}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase">
-                              Out
-                            </p>
-                            <p className="font-bold text-red-600">
-                              {stats.totalStockOut || 0}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={() =>
-                          handleDownloadReport(
-                            report.report_content,
-                            report.id,
-                            report.generated_at,
-                          )
-                        }
-                        disabled={downloadingId === report.id}
-                        className="w-full mt-4 bg-slate-50 hover:bg-[#0A1A44] hover:text-white text-slate-600 border border-slate-200 hover:border-[#0A1A44] py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all"
+                          {isIn ? "IN" : "OUT"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-bold text-slate-700">
+                        {selectedItem?.item_name || "-"}
+                      </td>
+                      <td
+                        className={`px-4 py-3 text-right font-bold ${
+                          isIn ? "text-emerald-700" : "text-red-700"
+                        }`}
                       >
-                        {downloadingId === report.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <>
-                            <Download className="w-4 h-4" /> Download PDF
-                          </>
-                        )}
-                      </button>
-                    </div>
+                        {isIn ? "+" : "-"}
+                        {qty} {selectedItem?.unit || ""}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono font-bold text-slate-700">
+                        {runningBalance} {selectedItem?.unit || ""}
+                      </td>
+                      <td className="min-w-64 px-4 py-3 text-slate-600">
+                        {log.notes || "No remarks"}
+                      </td>
+                    </tr>
                   );
-                })}
-              </div>
-            )}
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="mt-4 overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-2 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-bold text-[#0A1A44]">
+              Saved Inventory Snapshots
+            </h2>
+            <p className="text-xs text-slate-500">
+              Stored PDF-ready snapshots for the full active inventory.
+            </p>
           </div>
-        )}
-      </div>
+          <span className="text-xs font-bold uppercase text-slate-400">
+            {reports.length} saved
+          </span>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {reports.length === 0 ? (
+            <div className="p-6 text-sm text-slate-400">
+              No inventory snapshots saved yet.
+            </div>
+          ) : (
+            reports.map((report) => {
+              let data: CurrentStockReportData | null = null;
+              try {
+                data = JSON.parse(report.report_content);
+              } catch {
+                data = null;
+              }
+
+              return (
+                <div
+                  key={report.id}
+                  className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <p className="font-bold text-slate-800">
+                      {new Date(report.generated_at).toLocaleString("en-US", {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Items: {data?.summary.totalItems ?? 0} | Low stock:{" "}
+                      {data?.summary.lowStockCount ?? 0} | IN:{" "}
+                      {data?.summary.totalStockIn ?? 0} | OUT:{" "}
+                      {data?.summary.totalStockOut ?? 0}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleDownloadSnapshot(report)}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download PDF
+                  </button>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
+
       <AddSupplyModal
         isOpen={isAddOpen}
         onClose={() => setIsAddOpen(false)}
         onSuccess={fetchInventory}
       />
-      <AdjustStockModal
-        isOpen={!!adjustItem}
-        item={adjustItem}
-        onClose={() => setAdjustItem(null)}
-        onSuccess={fetchInventory}
-      />
     </div>
+  );
+}
+
+function Field({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-bold text-slate-600">
+        {label} {required && <span className="text-red-500">*</span>}
+      </span>
+      {children}
+    </label>
   );
 }

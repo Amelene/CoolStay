@@ -14,6 +14,8 @@ export const AuthSelect = forwardRef<HTMLSelectElement, AuthSelectProps>(
   ) => {
     const isGlass = variant === "glass";
     const labelColor = isGlass ? "text-white" : "text-[#0A1A44]";
+    const requiredColor = isGlass ? "text-red-200" : "text-red-500";
+    const isRequired = Boolean(props.required);
 
     const baseStyles = isGlass
       ? "bg-white/20 text-white border-white/20 focus:ring-white/50 focus:bg-white/30"
@@ -25,6 +27,7 @@ export const AuthSelect = forwardRef<HTMLSelectElement, AuthSelectProps>(
           className={`block text-left text-sm font-bold ml-1 ${labelColor}`}
         >
           {label}
+          {isRequired && <span className={`ml-1 ${requiredColor}`}>*</span>}
         </label>
         <div className="relative">
           <select

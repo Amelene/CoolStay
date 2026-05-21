@@ -72,6 +72,12 @@ const styles = StyleSheet.create({
   colStock: { width: "16%", textAlign: "center" },
   colMovement: { width: "11%", textAlign: "center" },
   colStatus: { width: "12%", textAlign: "right" },
+  historyTable: { width: "100%", marginTop: 18 },
+  historyDate: { width: "22%" },
+  historyType: { width: "12%" },
+  historyQty: { width: "14%", textAlign: "right" },
+  historyBalance: { width: "16%", textAlign: "right" },
+  historyNotes: { width: "36%" },
 
   statusLow: { color: "#DC2626", fontWeight: "bold" },
   statusGood: { color: "#16A34A" },
@@ -110,6 +116,14 @@ export interface CurrentStockReportData {
     totalStockOut?: number;
   };
   items: InventoryItem[];
+  history?: {
+    id: string;
+    usage_date: string;
+    purpose: string;
+    quantity_used: number;
+    used_by?: string;
+    notes?: string | null;
+  }[];
 }
 
 export default function CurrentStockReport({
@@ -117,6 +131,36 @@ export default function CurrentStockReport({
 }: {
   data: CurrentStockReportData;
 }) {
+  const item = data.items[0];
+  const openingBalance = item
+    ? item.current_stock -
+      (data.summary.totalStockIn ?? 0) +
+      (data.summary.totalStockOut ?? 0)
+    : 0;
+  const historyRows = (data.history || []).reduce<{
+    balance: number;
+    rows: {
+      log: NonNullable<CurrentStockReportData["history"]>[number];
+      isIn: boolean;
+      quantity: number;
+      balance: number;
+    }[];
+  }>(
+    (acc, log) => {
+      const isIn = log.purpose === "Restock";
+      const quantity = Number(log.quantity_used || 0);
+      const balance = isIn
+        ? acc.balance + quantity
+        : acc.balance - quantity;
+
+      return {
+        balance,
+        rows: [...acc.rows, { log, isIn, quantity, balance }],
+      };
+    },
+    { balance: openingBalance, rows: [] },
+  ).rows;
+
   return (
     <Document>
       <Page size="A4" style={styles.page}>
@@ -213,6 +257,60 @@ export default function CurrentStockReport({
             </View>
           ))}
         </View>
+
+        {historyRows.length > 0 && (
+          <View style={styles.historyTable}>
+            <Text
+              style={{
+                fontSize: 11,
+                color: "#0A1A44",
+                fontWeight: "bold",
+                marginBottom: 6,
+              }}
+            >
+              Transaction History
+            </Text>
+            <View style={styles.tableHeader}>
+              <Text style={styles.historyDate}>Date</Text>
+              <Text style={styles.historyType}>Type</Text>
+              <Text style={styles.historyQty}>Quantity</Text>
+              <Text style={styles.historyBalance}>Balance</Text>
+              <Text style={styles.historyNotes}>Remarks</Text>
+            </View>
+            {historyRows.map(({ log, isIn, quantity, balance }, i) => {
+              return (
+                <View
+                  key={log.id}
+                  style={[
+                    styles.tableRow,
+                    { backgroundColor: i % 2 === 0 ? "white" : "#F8FAFC" },
+                  ]}
+                >
+                  <Text style={styles.historyDate}>
+                    {new Date(log.usage_date).toLocaleString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </Text>
+                  <Text style={styles.historyType}>{isIn ? "IN" : "OUT"}</Text>
+                  <Text style={styles.historyQty}>
+                    {isIn ? "+" : "-"}
+                    {quantity} {item?.unit || ""}
+                  </Text>
+                  <Text style={styles.historyBalance}>
+                    {balance} {item?.unit || ""}
+                  </Text>
+                  <Text style={styles.historyNotes}>
+                    {log.notes || log.used_by || "No remarks"}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
 
         <Text style={styles.footer}>
           Confidential Inventory Document • Generated via CoolStay Admin

@@ -23,6 +23,10 @@ interface UserPaymentModalProps {
   onSuccess: () => void;
 }
 
+const MAX_RECEIPT_SIZE_MB = 5;
+const MAX_RECEIPT_SIZE_BYTES = MAX_RECEIPT_SIZE_MB * 1024 * 1024;
+const ACCEPTED_RECEIPT_TYPES = ["image/png", "image/jpeg"];
+
 const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -62,9 +66,24 @@ export default function UserPaymentModal({
   if (!isOpen) return null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+
+    if (!ACCEPTED_RECEIPT_TYPES.includes(selectedFile.type)) {
+      toast.error("Please upload a PNG or JPEG receipt.");
+      e.target.value = "";
+      setFile(null);
+      return;
     }
+
+    if (selectedFile.size > MAX_RECEIPT_SIZE_BYTES) {
+      toast.error(`Receipt image must be ${MAX_RECEIPT_SIZE_MB} MB or smaller.`);
+      e.target.value = "";
+      setFile(null);
+      return;
+    }
+
+    setFile(selectedFile);
   };
 
   const handleSubmit = async () => {
@@ -303,6 +322,10 @@ export default function UserPaymentModal({
                 <label className="block text-sm font-bold text-[#0A1A44] mb-2 uppercase tracking-wide">
                   Upload Receipt
                 </label>
+                <p className="mb-2 text-[11px] font-medium text-slate-500">
+                  Accepted formats: PNG or JPEG. Maximum file size:{" "}
+                  {MAX_RECEIPT_SIZE_MB} MB.
+                </p>
                 <div
                   onClick={() => fileInputRef.current?.click()}
                   className={`
@@ -316,7 +339,7 @@ export default function UserPaymentModal({
                 >
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/png,image/jpeg"
                     className="hidden"
                     ref={fileInputRef}
                     onChange={handleFileChange}
@@ -337,6 +360,9 @@ export default function UserPaymentModal({
                       <Upload className="w-6 h-6 text-slate-400 group-hover:text-[#0A1A44] mx-auto mb-1 transition-colors" />
                       <p className="font-bold text-xs text-slate-500 group-hover:text-[#0A1A44]">
                         Tap to attach screenshot
+                      </p>
+                      <p className="mt-1 text-[10px] font-medium text-slate-400">
+                        PNG/JPEG, max {MAX_RECEIPT_SIZE_MB} MB
                       </p>
                     </div>
                   )}

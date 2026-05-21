@@ -31,10 +31,12 @@ export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(
 
     // --- VARIANT STYLING ---
     const isGlass = variant === "glass";
+    const isRequired = Boolean(props.required);
 
     // Text Colors
     const labelColor = isGlass ? "text-white" : "text-[#0A1A44]";
     const iconColor = isGlass ? "text-blue-100/70" : "text-gray-400";
+    const requiredColor = isGlass ? "text-red-200" : "text-red-500";
 
     // Input Box Colors
     const baseStyles = isGlass
@@ -52,7 +54,10 @@ export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(
         <label
           className={`text-left text-sm font-bold ml-1 flex justify-between ${labelColor}`}
         >
-          <span>{label}</span>
+          <span>
+            {label}
+            {isRequired && <span className={`ml-1 ${requiredColor}`}>*</span>}
+          </span>
         </label>
 
         <div className="relative group">

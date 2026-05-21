@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useSearchParams } from "next/navigation";
+import Image from "next/image";
 import AdminBookingModal from "@/components/admin/AdminBookingModal";
 import PaymentProofModal from "@/components/admin/PaymentProofModal";
 import TransactionModal from "@/components/admin/TransactionModal";
@@ -66,6 +67,16 @@ interface PaymentVerification extends Payment {
   booking_id: string;
 }
 
+interface BookingDiscount {
+  id: string;
+  guest_name: string;
+  discount_type: "Senior" | "PWD";
+  id_number?: string | null;
+  id_image_url: string;
+  verification_status: string;
+  created_at: string;
+}
+
 interface Booking {
   id: string;
   created_at: string;
@@ -87,6 +98,7 @@ interface Booking {
   users: UserProfile | null;
   room_types: RoomType | null;
   payments?: Payment[];
+  booking_discounts?: BookingDiscount[];
 }
 
 interface ActionButtonProps {
@@ -705,6 +717,16 @@ function BookingCard({
   const pendingProof = (booking.payments || []).find(
     (p) => p.status === "pending" && p.proof_url,
   );
+  const discountIdGroups = (["PWD", "Senior"] as const)
+    .map((discountType) => ({
+      discountType,
+      label: discountType === "PWD" ? "PWD ID" : "Senior ID",
+      uploads:
+        booking.booking_discounts?.filter(
+          (discount) => discount.discount_type === discountType,
+        ) || [],
+    }))
+    .filter((group) => group.uploads.length > 0);
 
   // Status Config
   const statusConfig: Record<
@@ -1016,6 +1038,7 @@ function BookingCard({
                   </p>
                 </div>
               )}
+
             </div>
 
             {/* Transaction Log */}
@@ -1075,6 +1098,79 @@ function BookingCard({
                 </div>
               </div>
             </div>
+
+            {discountIdGroups.length > 0 && (
+              <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 md:col-span-2">
+                <p className="text-[10px] font-bold text-blue-700 uppercase mb-2">
+                  Uploaded Discount IDs
+                </p>
+                <div
+                  className={`grid gap-3 ${discountIdGroups.length > 1 ? "md:grid-cols-2" : "grid-cols-1"}`}
+                >
+                  {discountIdGroups.map((group) => (
+                    <div key={group.discountType} className="space-y-2">
+                      <p className="text-[10px] font-black uppercase text-slate-600">
+                        {group.label}
+                      </p>
+                      {group.uploads.map((discount, index) => {
+                        const isPdf = discount.id_image_url
+                          .toLowerCase()
+                          .includes(".pdf");
+
+                        return (
+                          <div
+                            key={discount.id}
+                            className="rounded-lg border border-blue-100 bg-white p-3"
+                          >
+                            <div className="mb-2">
+                              <p className="text-xs font-black text-slate-800">
+                                {group.label}
+                                {group.uploads.length > 1
+                                  ? ` ${index + 1}`
+                                  : ""}
+                              </p>
+                              <p className="text-[10px] font-medium text-slate-500">
+                                Uploaded{" "}
+                                {new Date(
+                                  discount.created_at,
+                                ).toLocaleDateString()}
+                              </p>
+                            </div>
+                            {isPdf ? (
+                              <a
+                                href={discount.id_image_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 hover:underline"
+                              >
+                                <FileText className="h-3 w-3" />
+                                Open uploaded PDF
+                              </a>
+                            ) : (
+                              <a
+                                href={discount.id_image_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block"
+                              >
+                                <div className="relative h-56 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                                  <Image
+                                    src={discount.id_image_url}
+                                    alt={`${group.label} upload`}
+                                    fill
+                                    className="object-contain"
+                                  />
+                                </div>
+                              </a>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

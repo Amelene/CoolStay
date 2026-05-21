@@ -7,6 +7,18 @@ import { onboardSchema, type OnboardFormData } from "@/lib/schemas";
 
 type SystemRole = "admin" | "manager" | "front_desk" | "staff";
 
+const PHONE_PREFIX = "+63";
+
+const getLocalPhoneDigits = (phone: string) => {
+  let digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("63")) digits = digits.slice(2);
+  if (digits.startsWith("0")) digits = digits.slice(1);
+  return digits.slice(0, 10);
+};
+
+const formatStaffPhone = (phone: string) =>
+  `${PHONE_PREFIX}${getLocalPhoneDigits(phone)}`;
+
 interface EditableStaff {
   id: number;
   user_id?: string | null;
@@ -69,7 +81,7 @@ const getInitialState = (): OnboardFormData => ({
   middle_name: "",
   last_name: "",
   email: "",
-  phone: "+639",
+  phone: PHONE_PREFIX,
   employee_id: "Generating...",
   system_role: "staff",
   position: ROLE_MAPPING.staff.positions[0],
@@ -85,7 +97,7 @@ const getEditState = (staff: EditableStaff): OnboardFormData => {
     middle_name: staff.middle_name || "",
     last_name: staff.last_name || "",
     email: staff.email || "",
-    phone: staff.phone || "+639",
+    phone: formatStaffPhone(staff.phone || ""),
     employee_id: staff.employee_id || "",
     system_role: role,
     position: staff.position || ROLE_MAPPING[role].positions[0],
@@ -336,17 +348,26 @@ export default function StaffModal({
               <label className="text-[10px] font-bold uppercase text-slate-400">
                 Phone Number <span className="text-red-500">*</span>
               </label>
-              <input
-                maxLength={13}
-                value={formData.phone}
-                onChange={(e) => {
-                  const next = e.target.value.replace(/[^\d+]/g, "");
-                  if (next.startsWith("+639")) updateField("phone", next);
-                }}
-                className={`w-full p-2.5 bg-slate-50 border rounded-xl text-sm outline-none ${
+              <div
+                className={`flex overflow-hidden rounded-xl border bg-slate-50 ${
                   errors.phone ? "border-red-300" : "border-slate-200"
                 }`}
-              />
+              >
+                <span className="flex items-center border-r border-slate-200 px-3 text-sm font-bold text-slate-500">
+                  {PHONE_PREFIX}
+                </span>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={10}
+                  value={getLocalPhoneDigits(formData.phone)}
+                  onChange={(e) => {
+                    updateField("phone", formatStaffPhone(e.target.value));
+                  }}
+                  placeholder="9123456789"
+                  className="min-w-0 flex-1 bg-transparent p-2.5 text-sm outline-none"
+                />
+              </div>
               {errors.phone && (
                 <p className="text-[9px] text-red-500 font-bold italic">
                   {errors.phone[0]}

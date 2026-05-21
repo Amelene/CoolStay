@@ -12,6 +12,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from("inventory_supplies")
       .select("*")
+      .is("archived_at", null)
       .order("category", { ascending: true })
       .order("item_name", { ascending: true });
 
@@ -77,7 +78,7 @@ export async function POST(request: Request) {
         current_stock: 0,
         unit: unit || "pcs",
         cost_per_unit: cost || 0,
-        last_restocked: new Date().toISOString(),
+        last_restocked: new Date().toISOString().slice(0, 10),
       })
       .select()
       .single();

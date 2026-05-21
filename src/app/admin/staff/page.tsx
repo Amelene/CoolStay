@@ -114,6 +114,12 @@ export default function StaffManagementPage() {
   const [weekDays, setWeekDays] = useState<Date[]>([]);
   const [shifts, setShifts] = useState<Record<string, string>>({}); // Key: "staffId_YYYY-MM-DD", Value: "shift_type"
   const [isUpdatingShift, setIsUpdatingShift] = useState<string | null>(null); // To show loading state per cell
+  const [selectedStaffIds, setSelectedStaffIds] = useState<number[]>([]);
+  const [bulkStartDate, setBulkStartDate] = useState(formatYMD(weekStart));
+  const [bulkEndDate, setBulkEndDate] = useState(formatYMD(weekStart));
+  const [bulkShiftType, setBulkShiftType] = useState("morning");
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+  const [scheduleSearchQuery, setScheduleSearchQuery] = useState("");
 
   const fetchStaff = async () => {
     setIsLoading(true);
@@ -161,6 +167,8 @@ export default function StaffManagementPage() {
       days.push(d);
     }
     setWeekDays(days);
+    setBulkStartDate(formatYMD(days[0]));
+    setBulkEndDate(formatYMD(days[6]));
 
     if (days.length > 0) {
       const startStr = formatYMD(days[0]);
@@ -251,6 +259,86 @@ export default function StaffManagementPage() {
       });
     } finally {
       setIsUpdatingShift(null);
+    }
+  };
+
+  const activeScheduleStaff = staffList.filter((s) => s.status === "active");
+  const visibleScheduleStaff = activeScheduleStaff.filter((staff) => {
+    const query = scheduleSearchQuery.trim().toLowerCase();
+    if (!query) return true;
+
+    return [
+      staff.first_name,
+      staff.last_name,
+      staff.employee_id,
+      staff.position,
+      staff.department,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  });
+  const isAllActiveSelected =
+    visibleScheduleStaff.length > 0 &&
+    visibleScheduleStaff.every((staff) => selectedStaffIds.includes(staff.id));
+
+  const toggleStaffSelection = (staffId: number) => {
+    setSelectedStaffIds((prev) =>
+      prev.includes(staffId)
+        ? prev.filter((id) => id !== staffId)
+        : [...prev, staffId],
+    );
+  };
+
+  const toggleAllActiveStaff = () => {
+    const visibleIds = visibleScheduleStaff.map((staff) => staff.id);
+    setSelectedStaffIds((prev) =>
+      isAllActiveSelected
+        ? prev.filter((id) => !visibleIds.includes(id))
+        : Array.from(new Set([...prev, ...visibleIds])),
+    );
+  };
+
+  const handleBulkAssign = async () => {
+    if (selectedStaffIds.length === 0) {
+      toast.error("Select at least one staff member.");
+      return;
+    }
+
+    if (!bulkStartDate || !bulkEndDate || bulkStartDate > bulkEndDate) {
+      toast.error("Choose a valid date range.");
+      return;
+    }
+
+    setIsBulkUpdating(true);
+    const toastId = toast.loading("Applying bulk schedule...");
+
+    try {
+      const res = await fetch("/api/admin/shifts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          staff_ids: selectedStaffIds,
+          start_date: bulkStartDate,
+          end_date: bulkEndDate,
+          shift_type: bulkShiftType,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to apply schedule");
+
+      toast.success("Bulk schedule applied.", { id: toastId });
+      if (weekDays[0] && weekDays[6]) {
+        await fetchShifts(formatYMD(weekDays[0]), formatYMD(weekDays[6]));
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to apply schedule",
+        { id: toastId },
+      );
+    } finally {
+      setIsBulkUpdating(false);
     }
   };
 
@@ -427,6 +515,74 @@ export default function StaffManagementPage() {
             </div>
           </div>
 
+          <div className="border-b border-slate-100 bg-slate-50 p-4">
+            <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_1fr_180px_auto]">
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">
+                  Search Staff
+                </span>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={scheduleSearchQuery}
+                    onChange={(event) => setScheduleSearchQuery(event.target.value)}
+                    placeholder="Name, ID, role..."
+                    className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm font-bold text-slate-700 outline-none focus:border-blue-400"
+                  />
+                </div>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">
+                  From
+                </span>
+                <input
+                  type="date"
+                  value={bulkStartDate}
+                  onChange={(event) => setBulkStartDate(event.target.value)}
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 outline-none focus:border-blue-400"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">
+                  To
+                </span>
+                <input
+                  type="date"
+                  value={bulkEndDate}
+                  onChange={(event) => setBulkEndDate(event.target.value)}
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 outline-none focus:border-blue-400"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold uppercase text-slate-500">
+                  Shift
+                </span>
+                <select
+                  value={bulkShiftType}
+                  onChange={(event) => setBulkShiftType(event.target.value)}
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 outline-none focus:border-blue-400"
+                >
+                  <option value="off">Off Duty</option>
+                  <option value="morning">Morning</option>
+                  <option value="mid">Mid</option>
+                  <option value="night">Night</option>
+                </select>
+              </label>
+              <div className="flex items-end">
+                <button
+                  onClick={handleBulkAssign}
+                  disabled={isBulkUpdating || selectedStaffIds.length === 0}
+                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 lg:w-auto"
+                >
+                  {isBulkUpdating && (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  )}
+                  Apply to {selectedStaffIds.length}
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Schedule Grid */}
           <div className="relative overflow-x-auto">
             {isLoading ? (
@@ -442,7 +598,15 @@ export default function StaffManagementPage() {
                 {/* Header Row */}
                 <div className="flex sticky top-0 z-20 bg-slate-50 border-b border-slate-200">
                   <div className="w-64 shrink-0 sticky left-0 z-30 bg-slate-50 border-r border-slate-200 p-4 font-bold text-xs text-slate-500 uppercase tracking-wider flex items-center shadow-[1px_0_0_#e2e8f0]">
-                    Staff Member
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={isAllActiveSelected}
+                        onChange={toggleAllActiveStaff}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      Staff Member
+                    </label>
                   </div>
                   {weekDays.map((day, i) => {
                     const dayStr = formatYMD(day);
@@ -471,15 +635,20 @@ export default function StaffManagementPage() {
 
                 {/* Staff Rows */}
                 <div className="flex flex-col pb-4">
-                  {staffList
-                    .filter((s) => s.status === "active")
-                    .map((staff) => (
+                  {visibleScheduleStaff.map((staff) => (
                       <div
                         key={staff.id}
                         className="flex group hover:bg-slate-50/80 transition-colors border-b border-slate-100"
                       >
                         {/* Name Column */}
                         <div className="w-64 shrink-0 sticky left-0 z-20 bg-white group-hover:bg-slate-50/80 border-r border-slate-200 p-4 flex items-center gap-3 shadow-[1px_0_0_#e2e8f0] transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={selectedStaffIds.includes(staff.id)}
+                            onChange={() => toggleStaffSelection(staff.id)}
+                            className="h-4 w-4 rounded border-slate-300"
+                            aria-label={`Select ${staff.first_name} ${staff.last_name}`}
+                          />
                           <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
                             {staff.first_name.charAt(0)}
                           </div>
