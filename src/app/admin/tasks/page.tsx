@@ -8,8 +8,14 @@ import {
   CheckCircle2,
   AlertCircle,
   ArrowRight,
+  Download,
 } from "lucide-react";
+import { pdf } from "@react-pdf/renderer";
+import { saveAs } from "file-saver";
 import AddTaskModal from "@/components/admin/tasks/AddTaskModal";
+import TodayTodoTasksReport, {
+  TodoTaskReportItem,
+} from "@/components/pdf/TodayTodoTasksReport";
 import { toast } from "sonner";
 
 type Task = {
@@ -28,6 +34,13 @@ type Task = {
     last_name: string;
     position: string;
   };
+};
+
+const formatYMD = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
 
 export default function TaskBoardPage() {
@@ -92,6 +105,47 @@ export default function TaskBoardPage() {
     completed: tasks.filter((t) => t.status === "completed"),
   };
 
+  const todayStr = formatYMD(new Date());
+  const todoTasksToday = columns.pending.filter(
+    (task) => task.due_date === todayStr,
+  );
+
+  const handleDownloadTodayTodoPdf = async () => {
+    const reportTasks: TodoTaskReportItem[] = todoTasksToday.map((task) => ({
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      priority: task.priority,
+      due_date: task.due_date,
+      room_number: task.room_inventory?.room_number || null,
+      staff_name: `${task.staff.first_name} ${task.staff.last_name}`,
+      staff_position: task.staff.position,
+    }));
+
+    const toastId = toast.loading("Building tasks PDF...");
+
+    try {
+      const blob = await pdf(
+        <TodayTodoTasksReport
+          generatedAt={new Date().toLocaleString("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+          tasks={reportTasks}
+        />,
+      ).toBlob();
+
+      saveAs(blob, `CoolStay_Today_To_Do_Tasks_${todayStr}.pdf`);
+      toast.success("Tasks PDF downloaded.", { id: toastId });
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to generate tasks PDF", { id: toastId });
+    }
+  };
+
   // 🔒 Priority colors removed here!
 
   return (
@@ -107,15 +161,24 @@ export default function TaskBoardPage() {
               : "Assign and track operational duties for your staff."}
           </p>
         </div>
-        {/* Assign Task button — hidden for operations staff */}
-        {!isStaff && (
+        <div className="flex flex-col gap-2 sm:flex-row">
           <button
-            onClick={() => setIsModalOpen(true)}
-            className="bg-[#0A1A44] hover:bg-blue-900 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md flex items-center gap-2 active:scale-95 transition-all"
+            onClick={handleDownloadTodayTodoPdf}
+            disabled={loading}
+            className="bg-white hover:bg-slate-50 text-[#0A1A44] border border-slate-200 px-5 py-3 rounded-xl font-bold text-sm shadow-sm flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50"
           >
-            <Plus className="w-4 h-4" /> Assign Task
+            <Download className="w-4 h-4" /> Today To Do PDF
           </button>
-        )}
+          {/* Assign Task button — hidden for operations staff */}
+          {!isStaff && (
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="bg-[#0A1A44] hover:bg-blue-900 text-white px-5 py-3 rounded-xl font-bold text-sm shadow-md flex items-center justify-center gap-2 active:scale-95 transition-all"
+            >
+              <Plus className="w-4 h-4" /> Assign Task
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
