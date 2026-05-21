@@ -7,8 +7,18 @@ import {
   XCircle,
   Loader2,
   FileText,
-  MessageSquareWarning,
+  ChevronDown,
 } from "lucide-react";
+
+const REJECTION_REASONS = [
+  "Blurry receipt",
+  "Wrong amount",
+  "Duplicate receipt",
+  "Invalid proof of payment",
+  "Edited/suspicious receipt",
+  "Wrong account/payment destination",
+  "Other / specify below",
+] as const;
 import { toast } from "sonner";
 import Image from "next/image";
 import { PDFDownloadLink } from "@react-pdf/renderer";
@@ -63,7 +73,15 @@ export default function PaymentProofModal({
 
   // Rejection Workflow States
   const [isRejecting, setIsRejecting] = useState(false);
-  const [rejectionRemarks, setRejectionRemarks] = useState("");
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [rejectionCustomNote, setRejectionCustomNote] = useState("");
+
+  // Derived: the value sent to the API
+  const rejectionRemarks =
+    rejectionReason === "Other / specify below"
+      ? rejectionCustomNote.trim()
+      : rejectionReason;
+  const isOtherSelected = rejectionReason === "Other / specify below";
 
   const [fullBookingData, setFullBookingData] =
     useState<BookingReceiptData | null>(null);
@@ -78,7 +96,8 @@ export default function PaymentProofModal({
   useEffect(() => {
     if (isOpen && payment?.id) {
       setIsRejecting(false);
-      setRejectionRemarks("");
+      setRejectionReason("");
+      setRejectionCustomNote("");
       fetchBookingDetails(payment.booking_id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -249,21 +268,53 @@ export default function PaymentProofModal({
               <div className="pt-2 border-t border-slate-100">
                 {isRejecting ? (
                   <div className="space-y-3 animate-in slide-in-from-bottom-2 duration-200">
-                    <div className="relative">
-                      <MessageSquareWarning className="absolute left-3 top-3 w-5 h-5 text-red-400" />
-                      <textarea
-                        placeholder="Why is this receipt being rejected? (e.g. Blurry, Wrong Amount, Duplicate)"
-                        value={rejectionRemarks}
-                        onChange={(e) => setRejectionRemarks(e.target.value)}
-                        disabled={loading}
-                        className="w-full pl-10 pr-3 py-3 border border-red-200 bg-red-50/30 rounded-xl text-sm focus:ring-2 focus:ring-red-500 outline-none resize-none h-24 placeholder:text-red-300 text-red-900 font-medium disabled:opacity-50"
-                      />
+                    {/* Reason Dropdown */}
+                    <div>
+                      <p className="text-xs font-bold text-red-700 uppercase tracking-wider mb-1.5">
+                        Select Rejection Reason
+                      </p>
+                      <div className="relative">
+                        <select
+                          value={rejectionReason}
+                          onChange={(e) => {
+                            setRejectionReason(e.target.value);
+                            setRejectionCustomNote("");
+                          }}
+                          disabled={loading}
+                          className="w-full appearance-none pl-3 pr-9 py-3 border border-red-200 bg-red-50/40 rounded-xl text-sm font-medium text-red-900 focus:ring-2 focus:ring-red-500 outline-none disabled:opacity-50 cursor-pointer"
+                        >
+                          <option value="" disabled>
+                            — Choose a reason —
+                          </option>
+                          {REJECTION_REASONS.map((reason) => (
+                            <option key={reason} value={reason}>
+                              {reason}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-400" />
+                      </div>
                     </div>
+
+                    {/* Custom note — only shown when "Other" is selected */}
+                    {isOtherSelected && (
+                      <div className="animate-in slide-in-from-top-1 duration-150">
+                        <textarea
+                          placeholder="Please describe the issue in detail..."
+                          value={rejectionCustomNote}
+                          onChange={(e) => setRejectionCustomNote(e.target.value)}
+                          disabled={loading}
+                          className="w-full px-3 py-3 border border-red-200 bg-red-50/30 rounded-xl text-sm focus:ring-2 focus:ring-red-500 outline-none resize-none h-20 placeholder:text-red-300 text-red-900 font-medium disabled:opacity-50"
+                        />
+                      </div>
+                    )}
+
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
                           setIsRejecting(false);
-                          setRejectionRemarks("");
+                          setRejectionReason("");
+                          setRejectionCustomNote("");
                         }}
                         disabled={loading}
                         className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors disabled:opacity-50"
