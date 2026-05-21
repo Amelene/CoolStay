@@ -173,6 +173,8 @@ function AdminBookingsPageContent() {
   const [checkInConfirm, setCheckInConfirm] = useState<Booking | null>(null);
   const [checkOutConfirm, setCheckOutConfirm] = useState<Booking | null>(null);
   const [damageNotes, setDamageNotes] = useState("");
+  // Tracks which booking should auto-open checkout after payment completes
+  const [pendingCheckoutBookingId, setPendingCheckoutBookingId] = useState<string | null>(null);
 
   useEffect(() => {
     const bookingId = searchParams.get("booking");
@@ -424,8 +426,12 @@ function AdminBookingsPageContent() {
               onReceivePayment={(bookingId, guestName, balance) =>
                 setTransactionPrefill({ bookingId, guestName, amount: balance })
               }
-              onCheckInClick={(b) => setCheckInConfirm(b)} // ✅ Passed down
-              onCheckOutClick={(b) => setCheckOutConfirm(b)} // ✅ Passed down
+              onPayAndCheckOut={(bookingId, guestName, balance) => {
+                setPendingCheckoutBookingId(bookingId);
+                setTransactionPrefill({ bookingId, guestName, amount: balance });
+              }}
+              onCheckInClick={(b) => setCheckInConfirm(b)}
+              onCheckOutClick={(b) => setCheckOutConfirm(b)}
             />
           ))
         )}
@@ -482,10 +488,23 @@ function AdminBookingsPageContent() {
       {/* ✅ Fixed: Using 'prefill' correctly */}
       <TransactionModal
         isOpen={!!transactionPrefill}
-        onClose={() => setTransactionPrefill(null)}
-        onSuccess={async () => {
-          await fetchBookings();
+        onClose={() => {
           setTransactionPrefill(null);
+          setPendingCheckoutBookingId(null);
+        }}
+        onSuccess={async () => {
+          // Fetch fresh booking data
+          const res = await fetch(`/api/admin/bookings?t=${Date.now()}`);
+          const data: Booking[] = res.ok ? await res.json() : [];
+          setBookings(data);
+          setTransactionPrefill(null);
+
+          // If this payment was triggered from "Pay & Check Out", auto-open Room Clearance
+          if (pendingCheckoutBookingId) {
+            const updated = data.find((b) => b.id === pendingCheckoutBookingId);
+            if (updated) setCheckOutConfirm(updated);
+            setPendingCheckoutBookingId(null);
+          }
         }}
         prefill={transactionPrefill}
       />
@@ -666,8 +685,9 @@ interface BookingCardProps {
   processingId: string | null;
   onVerifyProof: (payment: PaymentVerification) => void;
   onReceivePayment: (id: string, name: string, balance: number) => void;
-  onCheckInClick: (booking: Booking) => void; // ✅ NEW
-  onCheckOutClick: (booking: Booking) => void; // ✅ NEW
+  onPayAndCheckOut: (id: string, name: string, balance: number) => void;
+  onCheckInClick: (booking: Booking) => void;
+  onCheckOutClick: (booking: Booking) => void;
 }
 
 function BookingCard({
@@ -676,6 +696,7 @@ function BookingCard({
   processingId,
   onVerifyProof,
   onReceivePayment,
+  onPayAndCheckOut,
   onCheckInClick,
   onCheckOutClick,
 }: BookingCardProps) {
@@ -986,16 +1007,39 @@ function BookingCard({
             )}
 
             {booking.status === "checked_in" && (
-              <ActionButton
-                icon={LogOut}
-                label="Check Out"
-                color="bg-slate-800 text-white hover:bg-black"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCheckOutClick(booking); // ✅ Changed
-                }}
-                isLoading={isProcessing}
-              />
+              isFullyPaid ? (
+                <ActionButton
+                  icon={LogOut}
+                  label="Check Out"
+                  color="bg-slate-800 text-white hover:bg-black"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCheckOutClick(booking);
+                  }}
+                  isLoading={isProcessing}
+                />
+              ) : (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toast.info("Complete payment — Room Clearance will open automatically.");
+                    onPayAndCheckOut(
+                      booking.id,
+                      booking.users?.full_name || "Guest",
+                      balanceDue,
+                    );
+                  }}
+                  disabled={isProcessing}
+                  className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all disabled:opacity-50"
+                  title="Guest has an outstanding balance. Record payment before checkout."
+                >
+                  <CreditCard className="w-3.5 h-3.5 shrink-0" />
+                  <span>Pay &amp; Check Out</span>
+                  <span className="ml-0.5 rounded bg-amber-700/40 px-1.5 py-0.5 text-[10px] font-black tracking-tight">
+                    ₱{balanceDue.toLocaleString()}
+                  </span>
+                </button>
+              )
             )}
 
             {/* Expand Arrow */}
