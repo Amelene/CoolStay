@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
+  BarChart2,
   Download,
   FileText,
   Loader2,
@@ -640,35 +641,67 @@ export default function InventoryPage() {
             <p className="mb-4 text-lg font-black text-slate-900">
               {selectedItem?.item_name || "No item selected"}
             </p>
-            <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
-              <p className="text-xs font-bold text-slate-600">Current Stock</p>
-              <p className="mt-1 text-3xl font-black text-emerald-700">
-                {selectedItem?.current_stock ?? 0}
-                <span className="ml-1 text-sm">{selectedItem?.unit || "pcs"}</span>
-              </p>
-              <p className="mt-1 text-xs text-emerald-700">
-                Based on all IN and OUT transactions
-              </p>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-center">
-                <p className="text-xs font-bold text-emerald-700">Total IN</p>
-                <p className="text-xl font-black text-emerald-700">
-                  {itemTotals.stockIn}
+
+            {/* Stock Movement Summary — card-style breakdown */}
+            <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Stock Movement Summary
                 </p>
               </div>
-              <div className="rounded-lg border border-red-100 bg-red-50 p-3 text-center">
-                <p className="text-xs font-bold text-red-700">Total OUT</p>
-                <p className="text-xl font-black text-red-700">
-                  {itemTotals.stockOut}
-                </p>
+              <div className="divide-y divide-slate-100">
+                {/* Opening Stock row */}
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="rounded-lg bg-slate-100 p-1.5 text-slate-500">
+                      <Package className="h-3.5 w-3.5" />
+                    </div>
+                    <span className="text-sm font-medium text-slate-600">Opening Stock</span>
+                  </div>
+                  <span className="text-sm font-black text-slate-800">
+                    {itemTotals.opening} <span className="text-xs font-bold text-slate-400">{selectedItem?.unit || "pcs"}</span>
+                  </span>
+                </div>
+
+                {/* Stock In row */}
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="rounded-lg bg-emerald-100 p-1.5 text-emerald-600">
+                      <ArrowDownCircle className="h-3.5 w-3.5" />
+                    </div>
+                    <span className="text-sm font-medium text-slate-600">Stock In</span>
+                  </div>
+                  <span className="text-sm font-black text-emerald-600">
+                    + {itemTotals.stockIn} <span className="text-xs font-bold text-emerald-400">{selectedItem?.unit || "pcs"}</span>
+                  </span>
+                </div>
+
+                {/* Stock Out row */}
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="rounded-lg bg-red-100 p-1.5 text-red-500">
+                      <ArrowUpCircle className="h-3.5 w-3.5" />
+                    </div>
+                    <span className="text-sm font-medium text-slate-600">Stock Out</span>
+                  </div>
+                  <span className="text-sm font-black text-red-500">
+                    - {itemTotals.stockOut} <span className="text-xs font-bold text-red-300">{selectedItem?.unit || "pcs"}</span>
+                  </span>
+                </div>
+
+                {/* Divider + Current Stock */}
+                <div className="flex items-center justify-between bg-blue-50 px-4 py-3.5 border-t-2 border-blue-200">
+                  <div className="flex items-center gap-2.5">
+                    <div className="rounded-lg bg-blue-600 p-1.5 text-white">
+                      <BarChart2 className="h-3.5 w-3.5" />
+                    </div>
+                    <span className="text-sm font-bold text-blue-800">Current Stock</span>
+                  </div>
+                  <span className="text-lg font-black text-blue-700">
+                    {selectedItem?.current_stock ?? 0} <span className="text-xs font-bold text-blue-400">{selectedItem?.unit || "pcs"}</span>
+                  </span>
+                </div>
               </div>
-            </div>
-            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-center text-xs font-bold text-slate-600">
-              Current Stock = Opening + Total IN - Total OUT
-              <br />
-              {selectedItem?.current_stock ?? 0} = {itemTotals.opening} +{" "}
-              {itemTotals.stockIn} - {itemTotals.stockOut}
             </div>
             <button
               onClick={handleDeleteItem}
