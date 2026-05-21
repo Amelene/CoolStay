@@ -10,7 +10,8 @@ export async function POST(request: Request) {
     const { error: authError, user } = await authorizeAdmin(supabase);
     if (authError) return authError;
 
-    const { supply_id, type, quantity, notes, room_id } = await request.json();
+    const { supply_id, type, quantity, notes, usage_date } =
+      await request.json();
 
     // 1. Get Current Item
     const { data: item, error: fetchError } = await supabase
@@ -54,12 +55,12 @@ export async function POST(request: Request) {
     // For Restock: room_id is null, quantity_used is the amount added.
     await supabase.from("supply_usage_logs").insert({
       supply_id,
-      room_id: type === "usage" ? room_id || null : null, // Only link room if used
+      room_id: null,
       quantity_used: qty,
       used_by: user.user_metadata?.full_name || user.email || "Admin",
-      usage_date: new Date().toISOString(),
+      usage_date: usage_date || new Date().toISOString(),
       purpose: type === "restock" ? "Restock" : "Usage/Distribution",
-      notes: notes, // Mandatory in UI now
+      notes: notes?.trim(),
     });
 
     // 5. Admin Audit Log
@@ -67,7 +68,7 @@ export async function POST(request: Request) {
       supabase,
       user.id,
       type === "restock" ? "Restocked Inventory" : "Distributed Inventory",
-      `Item: ${item.item_name} | Qty: ${qty} | Room: ${room_id || "N/A"}`,
+      `Item: ${item.item_name} | Qty: ${qty} | Remarks: ${notes || "N/A"}`,
     );
 
     return NextResponse.json({ success: true, new_stock: newStock });

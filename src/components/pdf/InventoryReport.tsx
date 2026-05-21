@@ -113,8 +113,8 @@ export default function InventoryReport({
         {/* Table Header */}
         <View style={styles.table}>
           <View style={styles.tableRow}>
-            <View style={{ ...styles.tableColHeader, width: "15%" }}>
-              <Text style={styles.tableCellHeader}>Date</Text>
+            <View style={{ ...styles.tableColHeader, width: "20%" }}>
+              <Text style={styles.tableCellHeader}>Timestamp</Text>
             </View>
             <View style={{ ...styles.tableColHeader, width: "25%" }}>
               <Text style={styles.tableCellHeader}>Item</Text>
@@ -125,20 +125,24 @@ export default function InventoryReport({
             <View style={{ ...styles.tableColHeader, width: "10%" }}>
               <Text style={styles.tableCellHeader}>Qty</Text>
             </View>
-            <View style={{ ...styles.tableColHeader, width: "15%" }}>
-              <Text style={styles.tableCellHeader}>Location</Text>
-            </View>
-            <View style={{ ...styles.tableColHeader, width: "25%" }}>
-              <Text style={styles.tableCellHeader}>Notes / User</Text>
+            <View style={{ ...styles.tableColHeader, width: "35%" }}>
+              <Text style={styles.tableCellHeader}>Remarks / User</Text>
             </View>
           </View>
 
           {/* Table Body */}
           {logs.map((log) => (
             <View style={styles.tableRow} key={log.id}>
-              <View style={{ ...styles.tableCol, width: "15%" }}>
+              <View style={{ ...styles.tableCol, width: "20%" }}>
                 <Text style={styles.tableCell}>
-                  {new Date(log.usage_date).toLocaleDateString()}
+                  {new Date(log.usage_date).toLocaleString("en-US", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })}
                 </Text>
               </View>
               <View style={{ ...styles.tableCol, width: "25%" }}>
@@ -161,16 +165,9 @@ export default function InventoryReport({
               <View style={{ ...styles.tableCol, width: "10%" }}>
                 <Text style={styles.tableCell}>{log.quantity_used}</Text>
               </View>
-              <View style={{ ...styles.tableCol, width: "15%" }}>
+              <View style={{ ...styles.tableCol, width: "35%" }}>
                 <Text style={styles.tableCell}>
-                  {log.room_inventory?.room_number
-                    ? `Room ${log.room_inventory.room_number}`
-                    : "General"}
-                </Text>
-              </View>
-              <View style={{ ...styles.tableCol, width: "25%" }}>
-                <Text style={styles.tableCell}>
-                  {log.notes} ({log.used_by})
+                  {log.notes || "No remarks"} ({log.used_by})
                 </Text>
               </View>
             </View>

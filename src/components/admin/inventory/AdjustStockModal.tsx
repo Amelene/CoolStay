@@ -4,19 +4,12 @@ import { useState, useEffect } from "react";
 import { X, Loader2, ArrowDown, ArrowUp } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
-import { createClient } from "@/lib/supabase/client";
 
 interface Item {
   id: string;
   item_name: string;
   current_stock: number;
   unit: string;
-}
-
-interface Room {
-  id: string;
-  room_number: string;
-  room_type_id: string;
 }
 
 interface AdjustStockModalProps {
@@ -37,26 +30,10 @@ export default function AdjustStockModal({
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState("");
 
-  // Room Selection State
-  const [roomId, setRoomId] = useState<string>("");
-  const [rooms, setRooms] = useState<Room[]>([]);
-
   useEffect(() => {
     if (isOpen) {
-      // Fetch rooms for the dropdown
-      const fetchRooms = async () => {
-        const supabase = createClient();
-        const { data } = await supabase
-          .from("room_inventory")
-          .select("id, room_number, room_type_id");
-        if (data) setRooms(data);
-      };
-      fetchRooms();
-
-      // Reset Form
       setQuantity(1);
       setNotes("");
-      setRoomId("");
       setType("usage");
     }
   }, [isOpen]);
@@ -69,14 +46,8 @@ export default function AdjustStockModal({
     if (type === "usage" && quantity > item.current_stock)
       return toast.error("Not enough stock!");
 
-    // ✅ Mandatory Notes
     if (!notes.trim())
-      return toast.error("Please provide a reason/note for this adjustment.");
-
-    // ✅ Mandatory Room for Usage (Optional: can be 'General' if roomId is empty, handled by backend logic but let's enforce or allow 'General')
-    // Let's assume selecting a room is optional (e.g. for cleaning cart), but we encourage it.
-    // If you want it STRICT:
-    // if (type === "usage" && !roomId) return toast.error("Please select a room.");
+      return toast.error("Please add remarks for this stock movement.");
 
     setLoading(true);
     try {
@@ -88,7 +59,6 @@ export default function AdjustStockModal({
           type,
           quantity,
           notes,
-          room_id: roomId || null, // Send null if empty
         }),
       });
 
@@ -178,38 +148,16 @@ export default function AdjustStockModal({
             </div>
           </div>
 
-          {/* Room Selector (Only for OUT) */}
-          {type === "usage" && (
-            <div className="animate-in slide-in-from-top-2 fade-in">
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                Assigned Room / Location
-              </label>
-              <select
-                value={roomId}
-                onChange={(e) => setRoomId(e.target.value)}
-                className="w-full p-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
-              >
-                <option value="">General Use / Front Desk</option>
-                {rooms.map((room) => (
-                  <option key={room.id} value={room.id}>
-                    Room {room.room_number}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Mandatory Notes */}
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-              Notes <span className="text-red-500">*</span>
+              Remarks <span className="text-red-500">*</span>
             </label>
             <input
               required
               className="w-full p-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-100"
               placeholder={
                 type === "usage"
-                  ? "e.g. Guest Request, Cleaning"
+                  ? "e.g. Delivered to Room 1"
                   : "e.g. Monthly Supplier Delivery"
               }
               value={notes}
