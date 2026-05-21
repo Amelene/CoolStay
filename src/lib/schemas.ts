@@ -133,8 +133,8 @@ export const onboardSchema = z.object({
   email: z.string().email("Invalid email format"),
   phone: z
     .string()
-    .length(13, "Phone must be 13 characters (e.g., +639123456789)")
-    .regex(/^\+639\d{9}$/, "Must start with +639 followed by 9 digits"),
+    .length(13, "Phone must use +63 plus 10 digits (e.g., +639123456789)")
+    .regex(/^\+639\d{9}$/, "Enter a valid PH mobile number after +63"),
   employee_id: z.string(),
   system_role: z.enum(["admin", "manager", "front_desk", "staff"]),
   position: z.string(),
