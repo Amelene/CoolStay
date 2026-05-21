@@ -19,9 +19,14 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  Download,
   LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { pdf } from "@react-pdf/renderer";
+import { saveAs } from "file-saver";
+import StaffScheduleReport from "@/components/pdf/StaffScheduleReport";
+import type { DayHeader, ScheduleStaffRow } from "@/components/pdf/StaffScheduleReport";
 
 // --- TYPES ---
 interface StaffMember {
@@ -120,6 +125,7 @@ export default function StaffManagementPage() {
   const [bulkShiftType, setBulkShiftType] = useState("morning");
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
   const [scheduleSearchQuery, setScheduleSearchQuery] = useState("");
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const fetchStaff = async () => {
     setIsLoading(true);
@@ -342,6 +348,74 @@ export default function StaffManagementPage() {
     }
   };
 
+  // ── Export Schedule PDF ────────────────────────────────────────────────────
+  const handleExportPdf = async () => {
+    if (weekDays.length === 0) return;
+    setIsExportingPdf(true);
+    const toastId = toast.loading("Generating schedule PDF...");
+    try {
+      const todayKey = formatYMD(new Date());
+
+      const dayHeaders: DayHeader[] = weekDays.map((day) => ({
+        weekday: day
+          .toLocaleDateString("en-US", { weekday: "short" })
+          .toUpperCase(),
+        dayNum: day.getDate(),
+        monthShort: day.toLocaleDateString("en-US", { month: "short" }),
+        isToday: formatYMD(day) === todayKey,
+      }));
+
+      const rows: ScheduleStaffRow[] = visibleScheduleStaff.map((staff) => ({
+        name: `${staff.first_name} ${staff.last_name}`,
+        position: staff.position,
+        department: staff.department,
+        shifts: weekDays.map((day) => {
+          const key = `${staff.id}_${formatYMD(day)}`;
+          const v = shifts[key];
+          return (v === "morning" || v === "mid" || v === "night"
+            ? v
+            : "off") as ScheduleStaffRow["shifts"][number];
+        }),
+      }));
+
+      const start = weekDays[0]?.toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+      });
+      const end = weekDays[6]?.toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      });
+      const weekLabel = `${start} - ${end}`;
+      const generatedAt = new Date().toLocaleString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+
+      const blob = await pdf(
+        <StaffScheduleReport
+          weekLabel={weekLabel}
+          dayHeaders={dayHeaders}
+          rows={rows}
+          generatedAt={generatedAt}
+        />
+      ).toBlob();
+
+      saveAs(blob, `Staff_Schedule_${formatYMD(weekDays[0])}.pdf`);
+      toast.success("Schedule exported!", { id: toastId });
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to export PDF.", { id: toastId });
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   // --- FILTERS & STATS ---
   const filteredStaff = staffList.filter(
     (staff) =>
@@ -488,30 +562,48 @@ export default function StaffManagementPage() {
               <CalendarDays className="w-5 h-5 text-blue-300" /> Weekly Shift
               Scheduler
             </h2>
-            <div className="flex items-center gap-2 bg-white/10 p-1 rounded-xl">
+            <div className="flex items-center gap-3">
+              {/* Export PDF Button */}
               <button
-                onClick={() => shiftWeek(-7)}
-                className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                onClick={handleExportPdf}
+                disabled={isExportingPdf || weekDays.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 border border-white/20 rounded-lg text-sm font-bold transition-all disabled:opacity-50"
+                title="Download this week's schedule as PDF"
               >
-                <ChevronLeft className="w-5 h-5" />
+                {isExportingPdf ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                Export PDF
               </button>
-              <span className="text-sm font-medium w-44 text-center">
-                {weekDays[0]?.toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                })}{" "}
-                —{" "}
-                {weekDays[6]?.toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                })}
-              </span>
-              <button
-                onClick={() => shiftWeek(7)}
-                className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
+
+              {/* Week Navigation */}
+              <div className="flex items-center gap-2 bg-white/10 p-1 rounded-xl">
+                <button
+                  onClick={() => shiftWeek(-7)}
+                  className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <span className="text-sm font-medium w-44 text-center">
+                  {weekDays[0]?.toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  })}{" "}
+                  —{" "}
+                  {weekDays[6]?.toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+                <button
+                  onClick={() => shiftWeek(7)}
+                  className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           </div>
 
