@@ -19,9 +19,6 @@ interface FeedbackReview {
   room_types: {
     name: string | null;
   } | null;
-  Cottages: {
-    name: string | null;
-  } | null;
 }
 
 export async function GET() {
@@ -46,8 +43,7 @@ export async function GET() {
       replied_at,
       user_id,
       users ( full_name, email ),
-      room_types ( name ),
-      Cottages ( name )
+      room_types ( name )
     `,
     )
     .order("created_at", { ascending: false })
@@ -64,7 +60,7 @@ export async function GET() {
     guestName: r.users?.full_name || "Anonymous",
     guestEmail: r.users?.email || "",
     userId: r.user_id,
-    targetName: r.room_types?.name || r.Cottages?.name || "General Review",
+    targetName: r.room_types?.name || "General Review",
     rating: r.rating,
     comment: r.comment,
     date: new Date(r.created_at).toLocaleDateString("en-US", {
