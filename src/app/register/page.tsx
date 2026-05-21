@@ -214,6 +214,7 @@ export default function RegisterPage() {
               <AuthInput
                 label="First Name"
                 placeholder="e.g. John"
+                required
                 {...register("firstName", {
                   // FIX: Block numeric characters
                   onChange: (e) => {
@@ -229,6 +230,7 @@ export default function RegisterPage() {
               <AuthInput
                 label="Last Name"
                 placeholder="e.g. Doe"
+                required
                 {...register("lastName", {
                   // FIX: Block numeric characters
                   onChange: (e) => {
@@ -243,6 +245,7 @@ export default function RegisterPage() {
               />
               <AuthSelect
                 label="Gender"
+                required
                 options={[
                   { value: "male", label: "Male" },
                   { value: "female", label: "Female" },
@@ -258,6 +261,7 @@ export default function RegisterPage() {
                 label="Email"
                 type="email"
                 placeholder="name@example.com"
+                required
                 {...register("email")}
                 onBlur={(e) => {
                   register("email").onBlur(e);
@@ -272,6 +276,7 @@ export default function RegisterPage() {
                 label="Phone Number"
                 type="tel"
                 placeholder="09123456789"
+                required
                 {...register("phone", {
                   // FIX: Block non-numeric characters (allow +)
                   onChange: (e) => {
@@ -295,6 +300,7 @@ export default function RegisterPage() {
                   label="Password"
                   type="password"
                   placeholder="Create a password"
+                  required
                   {...register("password")}
                   error={errors.password?.message}
                   isSuccess={isFieldValid("password")}
@@ -305,6 +311,7 @@ export default function RegisterPage() {
                 label="Confirm Password"
                 type="password"
                 placeholder="Confirm your password"
+                required
                 {...register("confirmPassword")}
                 error={errors.confirmPassword?.message}
                 isSuccess={isFieldValid("confirmPassword")}
