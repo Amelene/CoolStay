@@ -16,8 +16,10 @@ import {
   ChevronDown,
   Info,
   Lock,
+  PackagePlus,
 } from "lucide-react";
 import { toast } from "sonner";
+import RoomSuppliesModal from "@/components/admin/RoomSuppliesModal";
 
 interface RoomInventory {
   id: string;
@@ -47,6 +49,12 @@ export default function RoomStatusDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [supplyModalRoom, setSupplyModalRoom] = useState<RoomInventory | null>(
+    null,
+  );
+  const [supplyModalDefaultType, setSupplyModalDefaultType] = useState<
+    "in" | "out"
+  >("out");
 
   const fetchStatus = async () => {
     setLoading(true);
@@ -107,6 +115,13 @@ export default function RoomStatusDashboard() {
       }
 
       toast.success(`Room updated to ${newStatus.replace("_", " ")}`);
+      if (currentStatus === "cleaning" && newStatus === "available") {
+        const cleanedRoom = previousRooms.find((room) => room.id === roomId);
+        if (cleanedRoom) {
+          setSupplyModalDefaultType("out");
+          setSupplyModalRoom(cleanedRoom);
+        }
+      }
     } catch (error) {
       setAllRooms(previousRooms);
       toast.error(
@@ -201,6 +216,12 @@ export default function RoomStatusDashboard() {
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto pb-12 relative">
+      <RoomSuppliesModal
+        isOpen={Boolean(supplyModalRoom)}
+        room={supplyModalRoom}
+        defaultMovementType={supplyModalDefaultType}
+        onClose={() => setSupplyModalRoom(null)}
+      />
       {/* 🔒 THE COMMAND BAR: Header, Tooltip, Search, Filter, and Refresh all in one sleek row */}
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
         <div className="flex items-center gap-2">
@@ -451,6 +472,20 @@ export default function RoomStatusDashboard() {
                           </>
                         )}
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isReadOnly) return;
+                          setSupplyModalDefaultType("out");
+                          setSupplyModalRoom(room);
+                        }}
+                        disabled={isReadOnly}
+                        className="w-full flex items-center justify-center gap-1 text-[9px] font-bold uppercase tracking-wider py-1.5 rounded-md bg-white/80 text-slate-700 border border-slate-200 hover:bg-white hover:border-blue-300 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <PackagePlus className="w-2.5 h-2.5" />
+                        Supplies
+                      </button>
                     </div>
                   );
                 })}

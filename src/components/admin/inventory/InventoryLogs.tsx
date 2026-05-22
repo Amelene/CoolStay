@@ -63,6 +63,10 @@ export default function InventoryLogs() {
         log.inventory_supplies?.unit || "",
         log.used_by || "",
         log.notes || "",
+        log.room_inventory?.room_number || "",
+        log.room_inventory?.room_number
+          ? `room ${log.room_inventory.room_number}`
+          : "",
         log.purpose || "",
         action,
         String(log.quantity_used),
@@ -177,7 +181,7 @@ export default function InventoryLogs() {
           <input
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Search item, remarks, user, quantity, or date"
+            placeholder="Search item, room, remarks, user, quantity, or date"
             className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm font-medium outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
           />
         </div>
@@ -204,6 +208,7 @@ export default function InventoryLogs() {
                 <th className="px-5 py-3">Item</th>
                 <th className="px-5 py-3">Movement</th>
                 <th className="px-5 py-3 text-right">Quantity</th>
+                <th className="px-5 py-3">Room</th>
                 <th className="px-5 py-3">Remarks</th>
                 <th className="px-5 py-3">Recorded By</th>
               </tr>
@@ -211,13 +216,13 @@ export default function InventoryLogs() {
             <tbody className="divide-y divide-slate-100">
               {logs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-slate-400">
+                  <td colSpan={7} className="px-5 py-12 text-center text-slate-400">
                     No stock movements have been recorded yet.
                   </td>
                 </tr>
               ) : filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-slate-400">
+                  <td colSpan={7} className="px-5 py-12 text-center text-slate-400">
                     No ledger entries match the current filters.
                   </td>
                 </tr>
@@ -274,6 +279,11 @@ export default function InventoryLogs() {
                       >
                         {isIn ? "+" : "-"}
                         {log.quantity_used}
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-4 font-bold text-slate-600">
+                        {log.room_inventory?.room_number
+                          ? `Room ${log.room_inventory.room_number}`
+                          : "-"}
                       </td>
                       <td
                         className="min-w-64 max-w-96 px-5 py-4 text-slate-600"

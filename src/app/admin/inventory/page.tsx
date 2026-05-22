@@ -6,6 +6,7 @@ import {
   ArrowUpCircle,
   BarChart2,
   Download,
+  Filter,
   FileText,
   Loader2,
   Package,
@@ -42,6 +43,7 @@ type InventoryLog = {
   quantity_used: number;
   used_by: string;
   notes: string | null;
+  room_inventory?: { room_number: string } | null;
 };
 
 type ReportItem = {
@@ -75,7 +77,9 @@ export default function InventoryPage() {
     toDateTimeLocal(new Date()),
   );
   const [itemSearch, setItemSearch] = useState("");
-  const [historySearch, setHistorySearch] = useState("");
+  const [historyMovementFilter, setHistoryMovementFilter] = useState<
+    "all" | "in" | "out"
+  >("all");
 
   const selectedItem = items.find((item) => item.id === selectedItemId) || null;
 
@@ -158,23 +162,31 @@ export default function InventoryPage() {
   }, [history, selectedItem]);
 
   const filteredHistory = useMemo(() => {
-    const query = historySearch.trim().toLowerCase();
-    if (!query) return history;
-
     return history.filter((log) => {
-      const text = [
-        log.purpose,
-        log.quantity_used,
-        log.notes || "",
-        log.used_by || "",
-        new Date(log.usage_date).toLocaleString("en-US"),
-      ]
-        .join(" ")
-        .toLowerCase();
-
-      return text.includes(query);
+      const isIn = log.purpose === "Restock";
+      if (historyMovementFilter === "in") return isIn;
+      if (historyMovementFilter === "out") return !isIn;
+      return true;
     });
-  }, [history, historySearch]);
+  }, [history, historyMovementFilter]);
+
+  const filteredItemTotals = useMemo(() => {
+    const stockIn = filteredHistory.reduce(
+      (sum, log) =>
+        log.purpose === "Restock" ? sum + Number(log.quantity_used || 0) : sum,
+      0,
+    );
+    const stockOut = filteredHistory.reduce(
+      (sum, log) =>
+        log.purpose === "Restock" ? sum : sum + Number(log.quantity_used || 0),
+      0,
+    );
+    const opening = selectedItem
+      ? selectedItem.current_stock - stockIn + stockOut
+      : 0;
+
+    return { stockIn, stockOut, opening };
+  }, [filteredHistory, selectedItem]);
 
   const filteredItems = useMemo(() => {
     const query = itemSearch.trim().toLowerCase();
@@ -320,13 +332,16 @@ export default function InventoryPage() {
           minute: "2-digit",
         }),
         generatedBy: "Admin",
-        filterLabel: selectedItem.item_name,
+        filterLabel:
+          historyMovementFilter === "all"
+            ? selectedItem.item_name
+            : `${selectedItem.item_name} | ${historyMovementFilter.toUpperCase()} only`,
         summary: {
           totalItems: 1,
           lowStockCount:
             selectedItem.current_stock <= selectedItem.minimum_stock ? 1 : 0,
-          totalStockIn: itemTotals.stockIn,
-          totalStockOut: itemTotals.stockOut,
+          totalStockIn: filteredItemTotals.stockIn,
+          totalStockOut: filteredItemTotals.stockOut,
         },
         items: [
           {
@@ -335,11 +350,11 @@ export default function InventoryPage() {
             current_stock: selectedItem.current_stock,
             minimum_stock: selectedItem.minimum_stock,
             unit: selectedItem.unit,
-            stock_in: itemTotals.stockIn,
-            stock_out: itemTotals.stockOut,
+            stock_in: filteredItemTotals.stockIn,
+            stock_out: filteredItemTotals.stockOut,
           },
         ],
-        history,
+        history: filteredHistory,
       };
 
       const blob = await pdf(<CurrentStockReport data={reportData} />).toBlob();
@@ -730,14 +745,32 @@ export default function InventoryPage() {
               item.
             </p>
           </div>
-          <div className="relative sm:w-72">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              value={historySearch}
-              onChange={(event) => setHistorySearch(event.target.value)}
-              placeholder="Search this audit trail"
-              className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-            />
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-slate-400" />
+            <div className="inline-grid grid-cols-3 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-1 text-xs font-bold">
+              {[
+                { value: "all", label: "All" },
+                { value: "in", label: "IN" },
+                { value: "out", label: "OUT" },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() =>
+                    setHistoryMovementFilter(
+                      option.value as "all" | "in" | "out",
+                    )
+                  }
+                  className={`rounded-md px-5 py-2 transition ${
+                    historyMovementFilter === option.value
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "text-slate-600 hover:bg-white"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -750,20 +783,21 @@ export default function InventoryPage() {
                 <th className="px-4 py-3">Item</th>
                 <th className="px-4 py-3 text-right">Quantity</th>
                 <th className="px-4 py-3 text-right">Balance After</th>
+                <th className="px-4 py-3">Room</th>
                 <th className="px-4 py-3">Remarks</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {historyLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                  <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
                     <Loader2 className="mx-auto mb-2 h-6 w-6 animate-spin" />
                     Loading audit trail...
                   </td>
                 </tr>
               ) : filteredHistory.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                  <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
                     No transaction history found for this item.
                   </td>
                 </tr>
@@ -816,6 +850,11 @@ export default function InventoryPage() {
                       </td>
                       <td className="px-4 py-3 text-right font-mono font-bold text-slate-700">
                         {runningBalance} {selectedItem?.unit || ""}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 font-bold text-slate-600">
+                        {log.room_inventory?.room_number
+                          ? `Room ${log.room_inventory.room_number}`
+                          : "-"}
                       </td>
                       <td className="min-w-64 px-4 py-3 text-slate-600">
                         {log.notes || "No remarks"}
