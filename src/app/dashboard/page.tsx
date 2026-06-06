@@ -162,16 +162,10 @@ export default function DashboardPage() {
         setBookings(result.bookings);
       }
       if (user) {
-        const supabase = createClient();
-        const { data: reviews } = await supabase
-          .from("reviews")
-          .select("booking_id")
-          .eq("user_id", user.id);
-        if (reviews) {
-          const reviewedIds = new Set(
-            reviews.map((r) => r.booking_id).filter(Boolean),
-          );
-          setReviewedBookingIds(reviewedIds as Set<string>);
+        const reviewsRes = await fetch("/api/reviews");
+        if (reviewsRes.ok) {
+          const reviewsResult = await reviewsRes.json();
+          setReviewedBookingIds(new Set(reviewsResult.bookingIds || []));
         }
       }
     } catch (error) {
@@ -267,7 +261,6 @@ export default function DashboardPage() {
           bookingId={reviewBooking.id}
           roomId={reviewBooking.room_types.id}
           roomName={reviewBooking.room_types.name}
-          userId={user.id}
           onClose={() => setReviewBooking(null)}
           onSuccess={() => fetchBookings()}
         />

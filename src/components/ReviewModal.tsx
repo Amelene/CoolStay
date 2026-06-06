@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/Button";
 import { toast } from "sonner";
 
@@ -9,7 +8,6 @@ interface ReviewModalProps {
   bookingId: string; // Ensure this is passed
   roomId: string;
   roomName: string;
-  userId: string;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -18,7 +16,6 @@ export default function ReviewModal({
   bookingId,
   roomId,
   roomName,
-  userId,
   onClose,
   onSuccess,
 }: ReviewModalProps) {
@@ -29,37 +26,34 @@ export default function ReviewModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
-    const supabase = createClient();
 
-    // Check if already reviewed (Double check for safety)
-    const { data: existing } = await supabase
-      .from("reviews")
-      .select("id")
-      .eq("booking_id", bookingId)
-      .single();
+    try {
+      const response = await fetch("/api/reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookingId,
+          roomId,
+          rating,
+          comment,
+        }),
+      });
 
-    if (existing) {
-      toast.error("You have already reviewed this stay.");
-      setSubmitting(false);
-      onClose();
-      return;
-    }
+      const result = await response.json();
 
-    const { error } = await supabase.from("reviews").insert({
-      user_id: userId,
-      room_id: roomId,
-      booking_id: bookingId, // Link the booking!
-      rating: rating,
-      comment: comment,
-    });
+      if (!response.ok) {
+        toast.error("Failed to submit review: " + result.error);
+        return;
+      }
 
-    if (error) {
-      toast.error("Failed to submit review: " + error.message);
-      setSubmitting(false);
-    } else {
       toast.success("Thank you for your review!");
       onSuccess();
       onClose();
+    } catch (error) {
+      console.error("Review submit error:", error);
+      toast.error("Failed to submit review. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
   };
 

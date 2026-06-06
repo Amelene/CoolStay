@@ -43,6 +43,20 @@ export default function UpdatePasswordPage() {
 
     const accessToken = hashParams.get("access_token");
     const refreshToken = hashParams.get("refresh_token");
+    const code = new URLSearchParams(window.location.search).get("code");
+
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code).then(({ data, error }) => {
+        if (error || !data.session) {
+          toast.error("Invite link is invalid or has expired. Please request a new one.");
+          router.replace("/login");
+        } else {
+          window.history.replaceState(null, "", window.location.pathname);
+          setVerifyingSession(false);
+        }
+      });
+      return;
+    }
 
     if (accessToken && refreshToken) {
       // ⚡ Step 2: createBrowserClient (@supabase/ssr) does NOT auto-process hash tokens.
@@ -56,6 +70,7 @@ export default function UpdatePasswordPage() {
             router.replace("/login");
           } else {
             // ✅ Session established — show the password form
+            window.history.replaceState(null, "", window.location.pathname);
             setVerifyingSession(false);
           }
         });
